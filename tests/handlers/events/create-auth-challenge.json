@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "triggerSource": "string",
+  "region": "aws-region",
+  "userPoolId": "string",
+  "userName": "string",
+  "callerContext":
+  {
+    "awsSdkVersion": "string",
+    "clientId": "string"
+  },
+  "request":
+  {
+    "userAttributes":
+    {
+      "email": "user@example.com"
+    },
+    "challengeName": "CUSTOM_CHALLENGE",
+    "session":[
+      {
+        "challengeName": "CUSTOM_CHALLENGE",
+        "challengeResult": false,
+        "challengeMetadata":  "OTP-abcd-1234"
+      }
+    ],
+    "clientMetadata":
+    {
+      "string": "string"
+    }
+  },
+  "response": {}
+}

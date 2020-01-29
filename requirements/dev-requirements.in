@@ -1,0 +1,16 @@
+awscli~=1.17
+aws-sam-cli~=0.40
+autopep8~=1.4
+bandit~=1.6
+cfn-lint~=0.26
+coverage~=4.5
+flake8~=3.7
+flake8-colors~=0.1
+flake8-docstrings~=1.5
+flake8-import-order~=0.18
+flake8-print~=3.1.4
+mypy~=0.740
+pep8-naming~=0.9
+pip-tools~=4.4
+toml~=0.10
+tox~=3.1

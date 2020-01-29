@@ -1,0 +1,4 @@
+-r requirements.txt
+# Boto3 and botocore must match Lambda environment down to patch version.
+boto3==1.11.9
+botocore==1.14.9

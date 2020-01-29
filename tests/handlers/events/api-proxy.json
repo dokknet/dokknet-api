@@ -1,0 +1,141 @@
+{
+  "body": null,
+  "headers": {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Authorization": "Bearer token",
+    "CloudFront-Forwarded-Proto": "https",
+    "CloudFront-Is-Desktop-Viewer": "true",
+    "CloudFront-Is-Mobile-Viewer": "false",
+    "CloudFront-Is-SmartTV-Viewer": "false",
+    "CloudFront-Is-Tablet-Viewer": "false",
+    "CloudFront-Viewer-Country": "CH",
+    "Host": "api-id.execute-api.us-west-2.amazonaws.com",
+    "Referer": "http://localhost:8080/",
+    "User-Agent": "Mozilla/5.0 (...) Gecko/20100101 Firefox/70.0",
+    "Via": "2.0 8455bcb2c0203b0c4ee93b610d75e69b.cloudfront.net (CloudFront)",
+    "X-Amz-Cf-Id": "MjSP_QDH8QTEz5n0gs74iaXN6DVkIOg-t9JYOiqrsrA8ETcX0vRwDA==",
+    "X-Amzn-Trace-Id": "Root=1-5dea95b2-420da818dda8c0cdc5c73d95",
+    "X-Forwarded-For": "31.10.153.99, 64.252.134.75",
+    "X-Forwarded-Port": "443",
+    "X-Forwarded-Proto": "https",
+    "origin": "http://localhost:8080"
+  },
+  "httpMethod": "GET",
+  "isBase64Encoded": false,
+  "multiValueHeaders": {
+    "Accept": [
+      "application/json, text/plain, */*"
+    ],
+    "Accept-Encoding": [
+      "gzip, deflate, br"
+    ],
+    "Accept-Language": [
+      "en-US,en;q=0.5"
+    ],
+    "Authorization": [
+      "Bearer token"
+    ],
+    "CloudFront-Forwarded-Proto": [
+      "https"
+    ],
+    "CloudFront-Is-Desktop-Viewer": [
+      "true"
+    ],
+    "CloudFront-Is-Mobile-Viewer": [
+      "false"
+    ],
+    "CloudFront-Is-SmartTV-Viewer": [
+      "false"
+    ],
+    "CloudFront-Is-Tablet-Viewer": [
+      "false"
+    ],
+    "CloudFront-Viewer-Country": [
+      "CH"
+    ],
+    "Host": [
+      "api-id.execute-api.us-west-2.amazonaws.com"
+    ],
+    "Referer": [
+      "http://localhost:8080/"
+    ],
+    "User-Agent": [
+      "Mozilla/5.0 (...) Gecko/20100101 Firefox/70.0"
+    ],
+    "Via": [
+      "2.0 cf-distro.cloudfront.net (CloudFront)"
+    ],
+    "X-Amz-Cf-Id": [
+      "MjSP_QDH8QTEz5n0gs74iaXN6DVkIOg-t9JYOiqrsrA8ETcX0vRwDA=="
+    ],
+    "X-Amzn-Trace-Id": [
+      "Root=1-5dea95b2-420da818dda8c0cdc5c73d95"
+    ],
+    "X-Forwarded-For": [
+      "127.0.0.1"
+    ],
+    "X-Forwarded-Port": [
+      "443"
+    ],
+    "X-Forwarded-Proto": [
+      "https"
+    ],
+    "origin": [
+      "http://localhost:8080"
+    ]
+  },
+  "multiValueQueryStringParameters": null,
+  "path": "/session-cookie",
+  "pathParameters": null,
+  "queryStringParameters": null,
+  "requestContext": {
+    "accountId": "aws-numeric-account-id",
+    "apiId": "api-id",
+    "authorizer": {
+      "claims": {
+        "aud": "string",
+        "auth_time": "epoch-time-stamp",
+        "cognito:username": "cognito-user-sub-id",
+        "email": "test@example.com",
+        "email_verified": "true",
+        "event_id": "uuid",
+        "exp": "Fri Dec 06 18:53:44 UTC 2019",
+        "iat": "Fri Dec 06 17:53:44 UTC 2019",
+        "iss": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_pool_id",
+        "sub": "cognito-user-sub-id",
+        "token_use": "id"
+      }
+    },
+    "domainName": "api-id.execute-api.us-west-2.amazonaws.com",
+    "domainPrefix": "api-id",
+    "extendedRequestId": "ESxT3HaPPHcFWzA=",
+    "httpMethod": "GET",
+    "identity": {
+      "accessKey": null,
+      "accountId": null,
+      "caller": null,
+      "cognitoAuthenticationProvider": null,
+      "cognitoAuthenticationType": null,
+      "cognitoIdentityId": null,
+      "cognitoIdentityPoolId": null,
+      "principalOrgId": null,
+      "sourceIp": "127.0.0.1",
+      "user": null,
+      "userAgent": "Mozilla/5.0 (...) Gecko/20100101 Firefox/70.0",
+      "userArn": null
+    },
+    "operationName": "lambda",
+    "path": "/v1/session-cookie",
+    "protocol": "HTTP/1.1",
+    "requestId": "bb309c47-8e56-4d97-88cb-f027db2f3603",
+    "requestTime": "06/Dec/2019:17:53:54 +0000",
+    "requestTimeEpoch": 1575654834215,
+    "resourceId": "resource-id",
+    "resourcePath": "/session-cookie",
+    "stage": "v1"
+  },
+  "resource": "/session-cookie",
+  "stageVariables": null
+}

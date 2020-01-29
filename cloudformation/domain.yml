@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Dokknet Backend API Domain Setup
+
+Parameters:
+  DeploymentTarget:
+    Type: String
+    Description: Deployment environment (no custom domain for dev)
+    AllowedValues:
+      - dev
+      - staging
+      - production
+  Domain:
+    Type: String
+    Description: Domain Name
+  HostedZoneId:
+    Type: String
+    Description: Hosted zone id of the domain in Route 53
+
+Mappings:
+  # Backend API id exported from AuthStack
+  ApiNames:
+    dev:
+      Name: "AuthService-Dev-RestApi"
+    staging:
+      Name: "AuthService-Staging-RestApi"
+    production:
+      Name: "AuthService-Production-RestApi"
+  # Backend API stage exported from AuthStack
+  ApiStages:
+    dev:
+      Name: "AuthService-Dev-RestApi"
+    staging:
+      Name: "AuthService-Staging-RestApi"
+    production:
+      Name: "AuthService-Production-RestApi"
+
+Resources:
+  # Need custom resources to handle automatic DNS verification for the
+  # certificate.
+  Certificate:
+    Type: Custom::Certificate
+    Properties:
+      DomainName: !Ref Domain
+      ValidationMethod: DNS
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:binxio-cfn-certificate-provider'
+  IssuedCertificate:
+    Type: Custom::IssuedCertificate
+    Properties:
+      CertificateArn: !Ref Certificate
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:binxio-cfn-certificate-provider'
+  CertificateDNSRecord:
+    Type: Custom::CertificateDNSRecord
+    Properties:
+      CertificateArn: !Ref Certificate
+      Domain: !Ref Domain
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:binxio-cfn-certificate-provider'
+  DomainValidationRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      RecordSets:
+        - Name: !GetAtt CertificateDNSRecord.Name
+          Type: !GetAtt CertificateDNSRecord.Type
+          TTL: '60'
+          Weight: 1
+          SetIdentifier: !Ref Certificate
+          ResourceRecords:
+            - !GetAtt CertificateDNSRecord.Value
+  DomainName:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      CertificateArn: !Ref IssuedCertificate
+      DomainName: !Ref Domain
+      EndpointConfiguration:
+        Types:
+          - EDGE
+  # Maps API's Cloudfront distribution to the domain.
+  RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref Domain
+      Type: A
+      AliasTarget:
+        HostedZoneId:
+          Fn::GetAtt: DomainName.DistributionHostedZoneId
+        DNSName:
+          Fn::GetAtt: DomainName.DistributionDomainName
+  DomainMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Properties:
+      BasePath:
+        Fn::ImportValue: !FindInMap [ApiStages, !Ref DeploymentTarget, Name]
+      DomainName: !Ref DomainName
+      RestApiId:
+        Fn::ImportValue: !FindInMap [ApiNames, !Ref DeploymentTarget, Name]

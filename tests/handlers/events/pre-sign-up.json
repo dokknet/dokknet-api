@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "triggerSource": "string",
+  "region": "aws-region",
+  "userPoolId": "string",
+  "userName": "string",
+  "callerContext":
+  {
+    "awsSdkVersion": "string",
+    "clientId": "string"
+  },
+  "request":
+  {
+    "userAttributes":
+    {
+      "email": "user@example.com",
+      "phone_number": "+12065550100"
+    },
+    "validationData":
+    {
+      "string": "string"
+    },
+    "clientMetaData":
+    {
+      "string": "string"
+    }
+  },
+  "response": {}
+}

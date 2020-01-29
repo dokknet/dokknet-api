@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "DeploymentTarget",
+    "ParameterValue": "production"
+  },
+  {
+    "ParameterKey": "PublicKeyUrlBase",
+    "ParameterValue": "https://dokknet-api.com/v1/auth/public-keys/"
+  },
+  {
+    "ParameterKey": "SESLoginSender",
+    "ParameterValue": "noreply@dokknet.com"
+  },
+  {
+    "ParameterKey": "SigningKeyAliasName",
+    "ParameterValue": "AuthService-Production-SigningKey"
+  },
+  {
+    "ParameterKey": "SigningKeyUsagePolicy",
+    "ParameterValue": "AuthService-Production-SigningKeyUsagePolicy"
+  },
+  {
+    "ParameterKey": "WebsiteOrigin",
+    "ParameterValue": "'https://dokknet.com'"
+  }
+]
