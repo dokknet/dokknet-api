@@ -80,7 +80,6 @@ def _build_config(env: Mapping[str, str], params: List[CloudFrontParam]) \
         counter_token_interval=(24 * 60 * 60),  # seconds
         counter_token_ttl=(60 * 60),  # seconds
         cors_ttl=(10 * 60),  # seconds
-        # TODO (abiro) login page should be a param
         login_page='https://dokknet.com/login',
         main_table=main_table,
         otp_length=8,
