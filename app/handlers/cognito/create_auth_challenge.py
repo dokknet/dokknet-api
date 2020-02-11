@@ -127,9 +127,6 @@ name. If that's the case, you can safely ignore the message.
     return html
 
 
-# TODO (abiro) TLS policy delivery: require
-# https://docs.aws.amazon.com/ses/latest/APIReference/API_DeliveryOptions.html
-# TODO (abiro) handle bounce event
 def _send_email(address: str, otp: str) -> None:
     """Send email with one-time password via AWS SES.
 
