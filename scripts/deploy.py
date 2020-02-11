@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from typing import Dict, List
 
 from samcli.lib.bootstrap import bootstrap
@@ -24,7 +23,7 @@ _IGNORE_BINARY = shutil.ignore_patterns('__pycache__',
                                         '*$py.class',
                                         '*.so')
 # Order of fresh deployments
-_SERVICE_ORDER = ('database', 'cognito', 'auth')
+_SERVICE_ORDER = ('database', 'cognito', 'api')
 
 
 def build_and_deploy_service(service_name: str, deployment_target: str) \
@@ -42,30 +41,16 @@ def build_service(service_name: str) -> None:
         shutil.copytree('app', app_dir, ignore=_IGNORE_BINARY)
         shutil.copy('LICENSE', app_dir)
 
-        deployment_template = build_template(service_name, app_dir)
+        template = f'cloudformation/{service_name}.yml'
 
         # Sam creates the deployment artifact from the source in the temporary
         # directory and puts it into the default directory from which
         # `sam deploy` can deploy it.
         sam_build = ['sam', 'build',
-                     '--template', deployment_template,
+                     '--template', template,
                      '--manifest', 'requirements/requirements.txt',
                      '--base-dir', tmpdir]
         subprocess.run(sam_build, check=True)
-
-
-def build_template(service_name: str, app_dir: str) -> str:
-    template = f'cloudformation/{service_name}.yml'
-    dep_template = f'{app_dir}/template.yml'
-    with open(template, 'r') as infile:
-        intext = infile.read()
-
-    dep_id = get_deployment_id()
-    outtext = intext.replace('$DEPLOYMENT_ID$', dep_id)
-    with open(dep_template, 'w') as outfile:
-        outfile.write(outtext)
-
-    return dep_template
 
 
 def deploy_service(service_name: str, deployment_target: str,
@@ -86,12 +71,6 @@ def deploy_service(service_name: str, deployment_target: str,
     subprocess.run(cmd, check=True)
 
 
-def get_deployment_id() -> str:
-    timestamp = round(time.time() * 1000)
-    # must be alphanumeric
-    return str(timestamp)
-
-
 def load_sam_config():
     with open('samconfig.toml') as f:
         return toml.load(f)
@@ -99,16 +78,6 @@ def load_sam_config():
 
 def get_sam_param(sam_config, target: str, param: str) -> str:
     return sam_config[target]['deploy']['parameters'][param]
-
-
-def set_sam_param(sam_config, target: str, param: str, val: str) -> None:
-    if target not in sam_config:
-        sam_config[target] = {
-            'deploy': {
-                'parameters': {}
-            }
-        }
-    sam_config[target]['deploy']['parameters'][param] = val
 
 
 def get_param_overrides(deployment_target: str) -> str:
@@ -138,17 +107,7 @@ def setup_deployment_bucket(sam_config, deployment_target) -> str:
     region = get_sam_param(sam_config, 'default', 'region')
     # Gets AWS profile from ambient configuration.
     s3_bucket = bootstrap.manage_stack(profile=None, region=region)
-    set_sam_param(sam_config, deployment_target, 's3_bucket', s3_bucket)
-    write_sam_config(sam_config)
-    logging.info(f'Updated `samconfig.toml` with deployment S3 bucket for '
-                 f'target {args.target}. You can commit the updated config '
-                 f'file.')
     return s3_bucket
-
-
-def write_sam_config(sam_config):
-    with open('samconfig.toml', 'w') as f:
-        toml.dump(sam_config, f)
 
 
 if __name__ == '__main__':

@@ -4,9 +4,3 @@ version = 0.1
 s3_prefix = "app"
 region = "us-west-2"
 capabilities = "CAPABILITY_IAM"
-
-[dev.deploy.parameters]
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-21cegw5fqmj8"
-
-[production.deploy.parameters]
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-qr7mj4bjxj0k"

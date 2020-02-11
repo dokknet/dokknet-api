@@ -1,0 +1,146 @@
+# SAM requires that all functions are in the same template.
+# Feature request to allow splitting templates:
+# https://github.com/awslabs/serverless-application-model/issues/866
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Dokknet API Gateway
+
+Parameters:
+  DeploymentTarget:
+    Type: String
+    Description: Deployment environment
+    AllowedValues:
+      - dev
+      - staging
+      - production
+  # Signing key and usage policy are created by `scripts/create_signing_key.py`
+  # bc CloudFormation doesn't support asymmetric keys.
+  SigningKeyUsagePolicy:
+    Type: String
+    Description: Auth API asymmetric signing key usage policy name
+    AllowedValues:
+      - AuthService-Dev-SigningKeyUsagePolicy
+      - AuthService-Staging-SigningKeyUsagePolicy
+      - AuthService-Production-SigningKeyUsagePolicy
+  WebsiteOrigin:
+    Type: String
+    Description: CORS origin for the website
+
+Globals:
+  Function:
+    Runtime: python3.8
+    # Seconds
+    Timeout: 3
+    MemorySize: 256
+    Environment:
+      Variables:
+        AWS_ACCOUNT_ID: !Ref AWS::AccountId
+        DEPLOYMENT_TARGET: !Ref DeploymentTarget
+
+Mappings:
+  # DynamoDB main table names exported from DatabaseStack
+  MainTableNames:
+    dev:
+      Name: "DatabaseService-Dev-MainTable"
+    staging:
+      Name: "DatabaseService-Staging-MainTable"
+    production:
+      Name: "DatabaseService-Production-MainTable"
+  # DynamoDB main table read&write policy ARN references exported from DatabaseStack
+  MainTableReadWritePolicyArn:
+    dev:
+      Name: "DatabaseService-Dev-MainTableReadWritePolicy"
+    staging:
+      Name: "DatabaseService-Staging-MainTableReadWritePolicy"
+    production:
+      Name: "DatabaseService-Production-MainTableReadWritePolicy"
+  # Cognito user pool ids exported from CognitoService
+  UserPoolIds:
+    dev:
+      Name: "CognitoService-Dev-UserPool"
+    staging:
+      Name: "CognitoService-Staging-UserPool"
+    production:
+      Name: "CognitoService-Production-UserPool"
+
+Resources:
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      AccessLogSetting:
+        DestinationArn: !Sub
+          - "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:API-Gateway-Access-Logs_${ApiId}"
+          - { ApiId: !Ref RestApi }
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn:
+              - !Sub
+                - "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+                - UserPoolId:
+                    Fn::ImportValue: !FindInMap [UserPoolIds, !Ref DeploymentTarget, Name]
+      CacheClusterEnabled: true
+      CacheClusterSize: "0.5"  # GB
+      Cors:
+        AllowCredentials: True
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'DELETE,GET,OPTIONS,PUT,POST'"
+        AllowOrigin: !Ref WebsiteOrigin
+        MaxAge: "'600'"
+      EndpointConfiguration: EDGE
+      MethodSettings:
+        - DataTraceEnabled: true
+          HttpMethod: "*"
+          LoggingLevel: INFO
+          ResourcePath: "/*"
+          MetricsEnabled: true
+      Name: !Sub "${AWS::StackName}-RestApi"
+      # Setting this to avoid generating default stage named "Stage"
+      OpenApiVersion: 3.0.2
+      StageName: v1
+  # Allows API GW to put logs into CloudWatch
+  ApiLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: apigateway.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonApiGatewayPushToCloudWatchLogs
+  # Allow API GW to create CloudWatch logs
+  ApiAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiLogsRole.Arn
+
+  GetSessionCookie:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Get session cookie for login on partner sites
+      CodeUri: .
+      Handler: app.handlers.auth.session_cookie.handler
+      Environment:
+        Variables:
+          MAIN_TABLE_NAME:
+            Fn::ImportValue: !FindInMap [MainTableNames, !Ref DeploymentTarget, Name]
+      Policies:
+        - Fn::ImportValue: !FindInMap [MainTableReadWritePolicyArn, !Ref DeploymentTarget, Name]
+        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/${SigningKeyUsagePolicy}"
+      Events:
+        GetResource:
+          Type: Api
+          Properties:
+            Method: get
+            Path: /auth/session-cookie
+            RestApiId: !Ref RestApi
+        DeleteResource:
+          Type: Api
+          Properties:
+            Method: delete
+            Path: /auth/session-cookie
+            RestApiId: !Ref RestApi
