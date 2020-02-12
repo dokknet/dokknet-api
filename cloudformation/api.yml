@@ -81,8 +81,6 @@ Resources:
                 - "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
                 - UserPoolId:
                     Fn::ImportValue: !FindInMap [UserPoolIds, !Ref DeploymentTarget, Name]
-      CacheClusterEnabled: true
-      CacheClusterSize: "0.5"  # GB
       Cors:
         AllowCredentials: True
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
