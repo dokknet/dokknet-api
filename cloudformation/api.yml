@@ -73,6 +73,7 @@ Resources:
           - { ApiId: !Ref RestApi }
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
         Authorizers:
           CognitoAuthorizer:
             UserPoolArn:
@@ -144,3 +145,10 @@ Resources:
             Method: delete
             Path: /auth/session-cookie
             RestApiId: !Ref RestApi
+
+Outputs:
+  RestApiId:
+    Description: Backend API id
+    Value: !Ref RestApi
+    Export:
+      Name: !Sub "${AWS::StackName}-RestApi"
