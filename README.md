@@ -75,7 +75,7 @@ Before the first deployment for a target, the following one-time tasks need to b
 
 1. Create signing key for the API by running 
 `./scripts/create_signing_key -t {deployment_target}` 
-from the repo root. (Unfortunately Cloudformation doesn't support provisioning asymmetric signing keys.)
+from the repo root. This is necessary, because CloudFormation doesn't support provisioning asymmetric signing keys. ([issue](https://github.com/aws-cloudformation/aws-cloudformation-coverage-roadmap/issues/337))
 
 ### Deploy
 
