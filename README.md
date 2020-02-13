@@ -91,16 +91,8 @@ to deploy a specific service. For example, to provision a dev database, run
 
 After the first deployment for a target, the following one-time tasks need to be completed:
 
-1. Setup a custom domain for AWS API gateway. See instructions in the [Domain Setup](#domain-setup) section. (We only set up domains for `production` and `staging` so you can ignore this step if you only want a `dev` deployment.)
+1. Set up a custom domain for AWS API gateway. See instructions in [AWS docs.](https://docs.aws.amazon.com/apigateway/latest/developerguide/how-to-custom-domains.html) (We only set up domains for `production` and `staging` so you can ignore this step if you only want a `dev` deployment.)
 1. Validate email address with AWS Simple Email Service (SES) to send login links. See instructions in the [Email Setup](#email-setup) section.
-
-#### Domain Setup
-
-1. Buy a domain with AWS Route 53 and note the automatically created hosted zone's id. See the "How do I get started with Amazon Route 53?" section of this [FAQ](https://aws.amazon.com/route53/faqs/) for instructions. Make sure to use the same account where the API Gateway is deployed.
-1. Run  
-`./scripts/setup_domain.py -t {deployment_target} -d {domain_name} -z {hosted_zone_id}`
-from the repo root to setup the custom domain mapping for AWS API Gateway and create a managed TLS certificate and handle the domain verification automatically.) Example command:
-`AWS_ACCESS_KEY_ID=X AWS_SECRET_ACCESS_KEY=X ./scripts/setup_domain.py -t production -d dokknet-api.com -z Z27R47FEZ9Y9DX`
 
 #### Email Setup
 
