@@ -12,6 +12,7 @@ from botocore.exceptions import ClientError
 
 from app.common.db.keys import AnySortKey, FullSortKey, PartitionKey
 from app.common.db.op_args import Attributes, InsertArg, OpArg
+from app.common.logging import get_logger
 
 
 class ItemResult(TypedDict, total=False):
@@ -96,6 +97,8 @@ class Database:
             table_name: The DynamoDB table name.
 
         """
+        self._logger: Optional[logging.Logger] = None
+
         self._table_name = table_name
         # The boto objects are lazy-initialzied connections are created until
         # the first request.
@@ -113,6 +116,13 @@ class Database:
     def _client(self) -> 'botocore.client.DynamoDB':
         # Helps mock the client at test time.
         return self._client_handle
+
+    @property
+    def _log(self) -> logging.Logger:
+        # Helps mock the logger at test time.
+        if self._logger is None:
+            self._logger = get_logger(f'{__name__}.{self.__class__.__name__}')
+        return self._logger
 
     @property
     def _table(self) -> 'boto3.resources.factory.dynamodb.Table':
@@ -233,7 +243,7 @@ class Database:
         try:
             res = self._table.query(**args)
         except ClientError as e:
-            logging.error(f'Failed to verify key due to client error:\n{e}')
+            self._log.error(f'Failed to verify key due to client error:\n{e}')
             return False
 
         items = res.get('Items', [])

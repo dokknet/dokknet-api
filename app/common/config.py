@@ -14,6 +14,7 @@ class Config(NamedTuple):
     counter_token_interval: int
     counter_token_ttl: int
     cors_ttl: int
+    log_level: str
     login_page: str
     main_table: str
     otp_length: int
@@ -72,6 +73,11 @@ def _build_config(env: Mapping[str, str], params: List[CloudFrontParam]) \
     aws_account_id = env.get('AWS_ACCOUNT_ID', 'UnknownAccountId')
     main_table = env.get('MAIN_TABLE_NAME', 'UnknownTableName')
 
+    if env.get('TOX_TESTENV'):
+        log_level = 'WARNING'
+    else:
+        log_level = pdict['LogLevel']
+
     return Config(
         access_token_max_age=(24 * 60 * 60),  # seconds
         aws_account_id=aws_account_id,
@@ -80,6 +86,7 @@ def _build_config(env: Mapping[str, str], params: List[CloudFrontParam]) \
         counter_token_interval=(24 * 60 * 60),  # seconds
         counter_token_ttl=(60 * 60),  # seconds
         cors_ttl=(10 * 60),  # seconds
+        log_level=log_level,
         login_page='https://dokknet.com/login',
         main_table=main_table,
         otp_length=8,

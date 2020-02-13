@@ -87,6 +87,10 @@ class TestInit(TestBase):
         db = Database('my-table')
         self.assertEqual(db._client, boto3.client.return_value)
 
+    def test_logger(self):
+        db = Database('my-table')
+        self.assertTrue(db._log.name.endswith(db.__class__.__name__))
+
     def test_table(self):
         boto3 = self._mocks['boto3']
         resource = MagicMock()
@@ -100,7 +104,7 @@ class TestInit(TestBase):
 class DatabaseTestCase(TestBase):
     _to_patch = [
         'app.common.db.database.boto3',
-        'app.common.db.database.logging',
+        'app.common.db.database.Database._log#PROPERTY',
         'app.common.db.database.Database._table#PROPERTY',
         'app.common.db.database.Database._client#PROPERTY'
     ]
@@ -108,10 +112,12 @@ class DatabaseTestCase(TestBase):
     def setUp(self):
         super().setUp()
 
-        self._table = MagicMock()
-        self._mocks['_table'].return_value = self._table
         self._client = MagicMock()
         self._mocks['_client'].return_value = self._client
+        self._log = MagicMock()
+        self._mocks['_log'].return_value = self._log
+        self._table = MagicMock()
+        self._mocks['_table'].return_value = self._table
         self._pk = db.PartitionKey('User', 'foo@example.com')
         self._sk = db.SortKey('Subscription', 'docs.example.com')
 
@@ -269,7 +275,7 @@ class TestVerifyKey(DatabaseTestCase, QueryTestMixin):
     def test_handles_client_error(self):
         self._table.query.side_effect = ClientError({}, 'name')
         self.assertFalse(self._call_test_fn())
-        self._mocks['logging'].error.assert_called_once()
+        self._log.error.assert_called_once()
 
     def test_correct_key(self):
         exp_cond = Key('PK').eq(str(self._pk)) & Key('SK').eq(str(self._sk))

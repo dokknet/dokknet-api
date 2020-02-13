@@ -10,7 +10,6 @@ import base64
 import binascii
 import copy
 import json
-import logging
 import re
 import time
 from typing import Any, Dict, Literal, Optional, TypedDict, cast
@@ -20,6 +19,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from app.common.config import config
+from app.common.logging import get_logger
 
 
 _StrDict = Dict[str, Any]
@@ -144,6 +144,7 @@ class TokenClient:
                 "https://dokknet-api.com/v1/auth/public-keys/"
 
         """
+        self._log = get_logger(f'{__name__}.{self.__class__.__name__}')
         self._client = boto3.client('kms')
 
         self._signing_key_name = signing_key_name
@@ -246,7 +247,7 @@ class TokenClient:
         try:
             key_arn = self._get_key_arn(key_id)
         except ValueError:
-            logging.debug('Invalid key id')
+            self._log.debug('Invalid key id')
             raise AuthenticationError()
 
         try:
@@ -260,13 +261,13 @@ class TokenClient:
                 SigningAlgorithm=self.signing_algorithm
             )
         except ClientError:
-            logging.debug('Error verifying key')
+            self._log.debug('Error verifying key')
             raise AuthenticationError()
         # boto3 documentation says `SignatureValid` is either true or an
         # exception is raised, but better check the value anyway in case
         # the behaviour changes.
         if not res['SignatureValid']:
-            logging.debug('Invalid signature')
+            self._log.debug('Invalid signature')
             raise AuthenticationError()
 
     def fetch_public_key(self, key_id: str) -> bytes:
@@ -359,30 +360,31 @@ class TokenClient:
             message_b64s, sig_b64s = token.rsplit('.', maxsplit=1)
             header_b64s, payload_b64s = message_b64s.split('.')
         except ValueError:
+            self._log.debug('Token string is not in JWT format')
             raise AuthenticationError()
 
         try:
             header = self._url_b64s_to_dict(header_b64s)
         except _ParseError:
-            logging.debug('Failed to parse header')
+            self._log.debug('Failed to parse header')
             raise AuthenticationError()
 
         try:
             kid = header['kid']
         except KeyError:
-            logging.debug('No kid field in header')
+            self._log.debug('No kid field in header')
             raise AuthenticationError()
 
         try:
             key_id = self._get_key_id_from_url(kid)
         except ValueError:
-            logging.debug('Invalid key url')
+            self._log.debug('Invalid key url')
             raise AuthenticationError()
 
         try:
             signature = self._url_b64s_to_bytes(sig_b64s)
         except _ParseError:
-            logging.debug('Invalid base64 in signature')
+            self._log.debug('Invalid base64 in signature')
             raise AuthenticationError()
 
         # Raises `AuthenticationError` on invalid signature.
@@ -391,17 +393,17 @@ class TokenClient:
         try:
             payload = self._url_b64s_to_dict(payload_b64s)
         except _ParseError:
-            logging.debug('Failed to parse payload')
+            self._log.debug('Failed to parse payload')
             raise AuthenticationError()
 
         try:
             expires = cast(int, payload['exp'])
         except KeyError:
-            logging.debug('No expiry in payload')
+            self._log.debug('No expiry in payload')
             raise AuthenticationError()
 
         if expires < time.time():
-            logging.debug('Message expired')
+            self._log.debug('Message expired')
             raise AuthenticationError()
 
         return payload

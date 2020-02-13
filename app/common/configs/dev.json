@@ -4,6 +4,10 @@
     "ParameterValue": "dev"
   },
   {
+    "ParameterKey": "LogLevel",
+    "ParameterValue": "DEBUG"
+  },
+  {
     "ParameterKey": "PublicKeyUrlBase",
     "ParameterValue": "https://invalid/v1/auth/public-keys/"
   },

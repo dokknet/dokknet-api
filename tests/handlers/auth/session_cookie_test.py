@@ -39,7 +39,7 @@ class TestDeleteHandler(MethodHandlerMixin, TestBase):
     _to_patch = [
         'app.handlers.auth.session_cookie._delete_session',
         'app.handlers.auth.session_cookie.get_session_id',
-        'app.handlers.auth.session_cookie.logging'
+        'app.handlers.auth.session_cookie._log'
     ]
 
     def _call_test_fn(self, with_session=True):
@@ -80,7 +80,7 @@ class TestDeleteHandler(MethodHandlerMixin, TestBase):
 
     def test_handles_delete_error(self):
         delete_session = self._mocks['_delete_session']
-        logging = self._mocks['logging']
+        logging = self._mocks['_log']
 
         delete_session.side_effect = ClientError({}, '')
 
@@ -151,7 +151,7 @@ class TestGetCookieTtl(TestBase):
 
 class TestGetSessionId(TestBase):
     _to_patch = [
-        'app.handlers.auth.session_cookie.logging'
+        'app.handlers.auth.session_cookie._log'
     ]
 
     @staticmethod
@@ -327,7 +327,7 @@ class TestGetHandler(MethodHandlerMixin, TestBase):
         'app.handlers.auth.session_cookie._store_session',
         'app.handlers.auth.session_cookie._get_session_token',
         'app.handlers.auth.session_cookie._generate_id',
-        'app.handlers.auth.session_cookie.logging'
+        'app.handlers.auth.session_cookie._log'
     ]
 
     def _call_test_fn(self):
@@ -379,7 +379,7 @@ class TestGetHandler(MethodHandlerMixin, TestBase):
 
     def test_error_if_store_failed(self):
         store_session = self._mocks['_store_session']
-        logging = self._mocks['logging']
+        logging = self._mocks['_log']
 
         store_session.side_effect = ClientError({}, 'op_name')
 

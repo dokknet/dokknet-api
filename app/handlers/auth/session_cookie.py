@@ -1,6 +1,5 @@
 """Get session cookie for authorization from partner doc sites."""
 import base64
-import logging
 import secrets
 import time
 from http.cookies import CookieError, SimpleCookie
@@ -10,11 +9,13 @@ from botocore.exceptions import ClientError
 
 import app.common.db as db
 from app.common.config import config
+from app.common.logging import get_logger
 from app.common.token import AuthenticationError, TokenClient
 from app.common.types.lambd import LambdaContext, ProxyEvent, ProxyResponse
 
 
 _database = db.Database(config.main_table)
+_log = get_logger(__name__)
 _token_client = TokenClient(config.signing_key_name)
 
 
@@ -30,7 +31,7 @@ def _delete_handler(user_email: str, domain: str, headers: Dict[str, Any]) \
     try:
         _delete_session(user_email, sess_id)
     except ClientError as e:
-        logging.error(f'Error deleting session:\n{e}')
+        _log.error(f'Error deleting session:\n{e}')
         # Client should retry deleting the cookie for which they will need the
         # session id so don't delete the cookie.
         return _get_response(status=500, allow_origin=config.website_origin,
@@ -96,7 +97,7 @@ def _get_handler(user_email: str, domain: str) -> ProxyResponse:
     try:
         _store_session(user_email, sess_id)
     except ClientError as e:
-        logging.error(f'Error storing session:\n{e}')
+        _log.error(f'Error storing session:\n{e}')
         return _get_response(status=500, allow_origin=config.website_origin,
                              cookie=None)
 
@@ -216,25 +217,25 @@ def get_session_id(headers: Dict[str, Any]) -> Optional[bytes]:
     try:
         raw_cookies = headers['Cookie']
     except KeyError:
-        logging.debug('No cookie in headers')
+        _log.debug('No cookie in headers')
         return None
 
     cookies: SimpleCookie[str] = SimpleCookie()
     try:
         cookies.load(raw_cookies)
     except CookieError:
-        logging.debug('Invalid cookie in headers')
+        _log.debug('Invalid cookie in headers')
         return None
     try:
         session_token = cookies[config.session_cookie_name].value
     except KeyError:
-        logging.debug('No session cookie in headers')
+        _log.debug('No session cookie in headers')
         return None
 
     try:
         return _get_session_from_token(session_token)
     except AuthenticationError:
-        logging.debug('Failed to authenticate token')
+        _log.debug('Failed to authenticate token')
         return None
 
 

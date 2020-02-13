@@ -4,6 +4,10 @@
     "ParameterValue": "production"
   },
   {
+    "ParameterKey": "LogLevel",
+    "ParameterValue": "DEBUG"
+  },
+  {
     "ParameterKey": "PublicKeyUrlBase",
     "ParameterValue": "https://dokknet-api.com/v1/auth/public-keys/"
   },
