@@ -1,4 +1,5 @@
 import base64
+import urllib.parse
 from http import cookies
 from typing import Any
 from unittest.mock import MagicMock as MMock
@@ -119,18 +120,16 @@ class TestGenerateId(TestBase):
 
 class TestGetCookie(TestBase):
     def test_fields(self):
-        # Make token roughly as long as a signed token
-        token = 'unit-test-token-data' * 10
+        # Important to test for '=' as it needs to be url-encoded.
+        token = 'unit=.test=.data='
         domain = 'example.com'
         max_age = 100
         cookie_str = m._get_cookie(domain, token, max_age)
         # Mypy doesn't recognize cookies.SimpleCookie as a type.
         c: Any = cookies.SimpleCookie()
         c.load(cookie_str)
-        # Browser restriction + headroom.
-        self.assertLess(len(cookie_str.encode('utf-8')), 3000)
         morsel = c[config.session_cookie_name]
-        self.assertEqual(morsel.value, token)
+        self.assertEqual(morsel.value, urllib.parse.quote(token))
         self.assertEqual(morsel['domain'], domain)
         self.assertEqual(morsel['max-age'], str(max_age))
         self.assertEqual(morsel['samesite'], 'None')
@@ -189,8 +188,9 @@ class TestGetSessionId(TestBase):
 
     @patch('app.handlers.auth.session_cookie._get_session_from_token')
     def test_correct_session_token(self, get_session_from_token):
-        sess_token = 'my-session-token'
-        event = self._get_headers(cookie_val=sess_token)
+        sess_token = 'my=session=token'
+        sess_token_q = urllib.parse.quote(sess_token)
+        event = self._get_headers(cookie_val=sess_token_q)
         m.get_session_id(event)
         self.assertEqual(get_session_from_token.call_args.args[0], sess_token)
 

@@ -2,6 +2,7 @@
 import base64
 import secrets
 import time
+import urllib.parse
 from http.cookies import CookieError, SimpleCookie
 from typing import Any, Dict, Optional, Type, cast
 
@@ -76,10 +77,13 @@ def _generate_id(nbytes: int) -> bytes:
 
 
 def _get_cookie(domain: str, token: str, max_age: int) -> str:
+    # Safari strips values after '=' (which terminates b64, so it's important
+    # to url-encode the token.
+    encoded_token = urllib.parse.quote(token)
     # SameSite=None bc the intended use of this cookie is to allow
     # users to authenticate from other sites. Chrome will soon default to
     # SameSite=Lax, so it's important to set None explicitly.
-    c = f'{config.session_cookie_name}={token} ' \
+    c = f'{config.session_cookie_name}={encoded_token} ' \
         f'Domain={domain}; ' \
         f'Max-Age={max_age}; ' \
         f'SameSite=None; Path=/; HttpOnly; Secure'
@@ -233,7 +237,8 @@ def get_session_id(headers: Dict[str, Any]) -> Optional[bytes]:
         return None
 
     try:
-        return _get_session_from_token(session_token)
+        unq_token = urllib.parse.unquote(session_token)
+        return _get_session_from_token(unq_token)
     except AuthenticationError:
         _log.debug('Failed to authenticate token')
         return None
