@@ -29,7 +29,10 @@ class CapacityError(DatabaseError):
 
 
 class ConditionalCheckFailedError(DatabaseError):
-    """Raised when inserting an item failed because it already exists."""
+    """Raised when a conditional check failed.
+
+    Eg. when trying to insert an item that already exists.
+    """
 
 
 class TransactionError(DatabaseError):
