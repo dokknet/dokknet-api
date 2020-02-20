@@ -1,43 +1,50 @@
 import copy
-import hashlib
-import logging
+import re
 from contextlib import contextmanager
-from typing import Iterable, Iterator, List, Optional, TypedDict
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional
 
 import boto3
-from boto3.dynamodb.conditions import Key
+import boto3.dynamodb.conditions as cond
 
 import botocore.client
 from botocore.exceptions import ClientError
 
-from app.common.db.keys import AnySortKey, FullSortKey, PartitionKey
-from app.common.db.op_args import Attributes, InsertArg, OpArg
-from app.common.logging import get_logger
+from app.common.db.keys import PartitionKey, PrefixSortKey, SortKey
+from app.common.db.op_args import Attributes, InsertArg, OpArg, PutArg, \
+    QueryArg, UpdateArg
 
 
-class ItemResult(TypedDict, total=False):
-    """An item from the database."""
-
-    PK: str
-    SK: str
-    ExpiresAt: int
-    UpdatedAt: str
+ItemResult = Mapping[str, Any]
 
 
-class ItemExistsError(Exception):
+class DatabaseError(Exception):
+    """Raised when a database error occurred without a more specific reason.
+
+    All other database errors inherit from this.
+    """
+
+
+class CapacityError(DatabaseError):
+    """Raised when a ProvisionedThroughputExceededException is raised."""
+
+
+class ConditionalCheckFailedError(DatabaseError):
     """Raised when inserting an item failed because it already exists."""
 
 
-class TransactionError(Exception):
-    """Raised when a transaction failed."""
+class TransactionError(DatabaseError):
+    """Raised when a transaction failed without a more specific reason."""
 
 
-class TooManyResultsError(Exception):
-    """Raised when a a fetch query returns more than 1 result."""
+class TransactionConflict(TransactionError):
+    """The transaction failed due to conflict from an other transaction."""
 
 
 class Database:
-    """DynamoDB single table pattern."""
+    """DynamoDB single table pattern.
+
+    Databases instances are not safe to share across threads.
+    """
 
     @staticmethod
     @contextmanager
@@ -49,45 +56,37 @@ class Database:
             db_error = e.response.get('Error', {})
             code = db_error.get('Code')
             if code == 'ConditionalCheckFailedException':
-                raise ItemExistsError(e)
+                raise ConditionalCheckFailedError(e)
+            if code == 'ProvisionedThroughputExceededException':
+                raise CapacityError(e)
             elif code == 'TransactionCanceledException':
-                raise TransactionError(e)
+                message = db_error.get('Message', '')
+                if 'ConditionalCheckFailed' in message:
+                    raise ConditionalCheckFailedError(e)
+                elif 'TransactionConflict' in message:
+                    raise TransactionConflict(e)
+                else:
+                    raise TransactionError(e)
             else:
-                raise e
+                raise DatabaseError(e)
 
     @staticmethod
-    def _remove_prefix(prefix: str, string: str) -> str:
-        if string.startswith(prefix):
-            return string[len(prefix):]
+    def _remove_entity_prefix(string: str) -> str:
+        # Entity names are upper-cased Python class names.
+        pattern = r'^[A-Z0-9_]+#(.+)$'
+        match = re.match(pattern, string)
+        if match:
+            return match.group(1)
         else:
-            raise ValueError(
-                f'String {string} doesn\'t start with prefix {prefix}')
-
-    @staticmethod
-    def hex_hash(value: bytes) -> str:
-        """Get the SHA3-256 hex hash of the value.
-
-        Args:
-            value: The value to hash.
-
-        Returns:
-            The hash as a hex digest.
-
-        """
-        m = hashlib.sha3_256()
-        m.update(value)
-        return m.hexdigest()
+            return string
 
     @classmethod
-    def _strip_prefixes(cls, pk: PartitionKey, sk: AnySortKey,
-                        item: ItemResult) -> ItemResult:
-        """Strip prefixes of PK and SK values from a DB item."""
+    def _strip_prefixes(cls, item: Dict[str, Any]) -> ItemResult:
+        """Strip entity prefixes from a DB item."""
         item_copy = copy.deepcopy(item)
-        if 'PK' in item:
-            item_copy['PK'] = cls._remove_prefix(pk.prefix, item['PK'])
-        if 'SK' in item:
-            # If SK is a `SingleSortKey` this results in the empty string.
-            item_copy['SK'] = cls._remove_prefix(sk.prefix, item['SK'])
+        for k, v in item_copy.items():
+            if isinstance(v, str):
+                item_copy[k] = cls._remove_entity_prefix(v)
         return item_copy
 
     def __init__(self, table_name: str):
@@ -97,8 +96,6 @@ class Database:
             table_name: The DynamoDB table name.
 
         """
-        self._logger: Optional[logging.Logger] = None
-
         self._table_name = table_name
         # The boto objects are lazy-initialzied connections are created until
         # the first request.
@@ -118,64 +115,67 @@ class Database:
         return self._client_handle
 
     @property
-    def _log(self) -> logging.Logger:
-        # Helps mock the logger at test time.
-        if self._logger is None:
-            self._logger = get_logger(f'{__name__}.{self.__class__.__name__}')
-        return self._logger
-
-    @property
     def _table(self) -> 'boto3.resources.factory.dynamodb.Table':
         # Helps mock the table at test time.
         return self._table_handle
 
-    def fetch(self, pk: PartitionKey, sk: AnySortKey,
-              index_name: Optional[str] = None,
-              attributes: Optional[List[str]] = None) -> Optional[ItemResult]:
-        """Fetch a single item from the database.
+    def _query(self, query_arg: QueryArg) -> List[ItemResult]:
+        args = query_arg.get_kwargs(self._table_name)
+        with self._dispatch_client_error():
+            query_res = self._table.query(**args)
+        items = query_res.get('Items', [])
+        return [self._strip_prefixes(item) for item in items]
+
+    def delete_item(self, pk: PartitionKey, sk: SortKey) -> None:
+        """Delete an item from the database.
+
+        The operation is idempotent.
 
         Args:
-            pk: The partition key.
+            pk: The primary key.
             sk: The sort key.
-            index_name: Optional global secondary index name.
-            attributes: The attributes to get. Defaults to ['PK', 'SK'].
-
-        Returns:
-            Whether the key exists in the database.
-
-        Raises:
-            app.common.db.ClientError if there was an error querying the
-                database.
-            app.common.db.TooManyResultsError if more than one items were
-                returned for the query.
 
         """
-        key_cond = Key('PK').eq(str(pk)) & Key('SK').begins_with(str(sk))
         args = {
-            'Select': 'SPECIFIC_ATTRIBUTES',
-            'KeyConditionExpression': key_cond
+            'Key': {
+                'PK': str(pk),
+                'SK': str(sk)
+            }
         }
+        with self._dispatch_client_error():
+            self._table.delete_item(**args)
 
-        if index_name:
-            args['IndexName'] = index_name
+    def get_item(self, pk: PartitionKey, sk: SortKey,
+                 attributes: Optional[List[str]] = None,
+                 consistent: bool = False) -> Optional[ItemResult]:
+        """Fetch an item by its primary key from the database.
 
-        if attributes:
-            args['AttributesToGet'] = attributes
+        Args:
+            pk: The primary key.
+            sk: The sort key.
+            attributes: The attributes to get. Defaults to `['SK']`.
+            consistent: Whether the read is strongly consistent or not.
+
+        Returns:
+            The item if it exists.
+
+        """
+        key_cond = cond.Key('PK').eq(str(pk)) & cond.Key('SK').eq(str(sk))
+        query_arg = QueryArg(key_cond,
+                             attributes=attributes,
+                             consistent=consistent,
+                             limit=1)
+        # `Table.get_item` doesn't allow specifying index.
+        res = self._query(query_arg)
+        if res:
+            return res[0]
         else:
-            args['AttributesToGet'] = ['PK', 'SK']
-
-        res = self._table.query(**args)
-        items = res.get('Items', [])
-        if len(items) == 0:
             return None
-        elif len(items) == 1:
-            return self._strip_prefixes(pk, sk, items[0])
-        else:
-            raise TooManyResultsError(
-                f'Multiple items returned when fetching ({pk}, {sk})')
 
-    def insert(self, pk: PartitionKey, sk: FullSortKey,
-               attributes: Optional[Attributes] = None) -> None:
+    # Type checks are sufficient to test this function, so it's excluded from
+    # unit test coverage.
+    def insert(self, pk: PartitionKey, sk: SortKey,
+               attributes: Optional[Attributes] = None) -> None:  # pragma: no cover  # noqa 501
         """Insert a new item into the database.
 
         The UpdateAt attribute of the item is automatically set.
@@ -190,25 +190,104 @@ class Database:
         Raises:
             app.common.db.ItemExistsError if the item with the same composite
                 key already exists.
-            app.common.db.ClientError if there was a problem connecting to the
-                database.
+            app.common.db.DatabaseError if there was a problem connecting to
+                the database.
 
         """
         put_arg = InsertArg(pk, sk, attributes=attributes)
+        self.put_item(put_arg)
+
+    def put_item(self, put_arg: PutArg) -> None:
+        """Insert a new item or replace an existing item.
+
+        Args:
+            put_arg: The put item op argument.
+
+        Raises:
+            app.common.db.DatabaseError if there was a problem connecting to
+                the database.
+
+        """
         kwargs = put_arg.get_kwargs(self._table_name)
         with self._dispatch_client_error():
             self._client.put_item(**kwargs)
 
+    # Type checks are sufficient to test this function, so it's excluded from
+    # unit test coverage.
+    def query(self, key_condition: cond.Key,
+              attributes: Optional[List[str]] = None,
+              consistent: bool = False,
+              limit: Optional[int] = None) -> List[ItemResult]:  # pragma: no cover  # noqa 501
+        """Fetch items from the database based on a key condition.
+
+        Doesn't support pagination.
+
+        Args:
+            key_condition: The key condition. Eg.:
+                `Key('PK').eq(str(pk)) & Key('SK').begins_with(str(sk))`
+            attributes: The attributes to get. Defaults to `SK`.
+            consistent: Whether the read is strongly consistent or not.
+            limit: The maximum number of items to fetch. Defaults to 1000.
+
+        Returns:
+            The requested items with the entity name prefixes stripped,
+            eg. if the value of an attribute is 'USER#foo@example.com',
+            only 'foo@example.com' is returned.
+
+        Raises:
+            app.common.db.DatabaseError if there was an error querying the
+                database.
+
+        """
+        query_arg = QueryArg(key_condition,
+                             attributes=attributes,
+                             consistent=consistent,
+                             limit=limit)
+        return self._query(query_arg)
+
+    def query_prefix(self, pk: PartitionKey, sk: PrefixSortKey,
+                     attributes: Optional[List[str]] = None,
+                     consistent: bool = False,
+                     limit: Optional[int] = None) -> List[ItemResult]:
+        """Fetch a items from the database based on a sort key prefix.
+
+        Doesn't support pagination.
+
+        Args:
+            pk: The partition key.
+            sk: The sort key prefix.
+            attributes: The attributes to get. Defaults to `['SK']`.
+            consistent: Whether the read is strongly consistent or not.
+            limit: The maximum number of items to fetch. Defaults to 1000.
+
+        Returns:
+            The requested items with the `PK` and `SK` prefixes stripped.
+
+        Raises:
+            app.common.db.DatabaseError if there was an error querying the
+                database.
+
+        """
+        key_condition = cond.Key('PK').eq(str(pk)) & \
+            cond.Key('SK').begins_with(str(sk))
+        query_arg = QueryArg(key_condition,
+                             attributes=attributes,
+                             consistent=consistent,
+                             limit=limit)
+        return self._query(query_arg)
+
     def transact_write_items(self, args: Iterable[OpArg]) -> None:
         """Write multiple items in a transaction.
+
+        Note
 
         Args:
             args: Write OP args.
 
         Raises:
             app.common.db.TransactionError if the transaction fails.
-            app.common.db.ClientError if there was a problem connecting to the
-                database.
+            app.common.db.DatabaseError if there was a problem connecting to
+                the database.
 
         """
         transact_items = []
@@ -218,33 +297,39 @@ class Database:
         with self._dispatch_client_error():
             self._client.transact_write_items(TransactItems=transact_items)
 
-    def verify_key(self, pk: PartitionKey, sk: FullSortKey,
-                   index_name: Optional[str] = None) -> bool:
-        """Check whether a key exists in the database.
+    def update_item(self, update_arg: UpdateArg) -> None:
+        """Update an item or insert a new item if it doesn't exist.
 
         Args:
-            pk: The primary key.
-            sk: The secondary key.
-            index_name: Optional global secondary index name.
+            update_arg: The update item op argument.
 
-        Returns:
-            Whether the key exists in the database.
+        Raises:
+            app.common.db.DatabaseError if there was a problem connecting to
+                the database.
 
         """
-        key_cond = Key('PK').eq(str(pk)) & Key('SK').eq(str(sk))
-        args = {
-            'Select': 'SPECIFIC_ATTRIBUTES',
-            'AttributesToGet': ['PK'],
-            'KeyConditionExpression': key_cond,
-            'Limit': 1
-        }
-        if index_name:
-            args['IndexName'] = index_name
-        try:
-            res = self._table.query(**args)
-        except ClientError as e:
-            self._log.error(f'Failed to verify key due to client error:\n{e}')
-            return False
+        kwargs = update_arg.get_kwargs(self._table_name)
+        with self._dispatch_client_error():
+            self._client.update_item(**kwargs)
 
-        items = res.get('Items', [])
-        return len(items) > 0
+    # Type checks are sufficient to test this function, so it's excluded from
+    # unit test coverage.
+    def put_attributes(self, pk: PartitionKey, sk: SortKey,
+                       attributes: Attributes) -> None:  # pragma: no cover
+        """Update an item or insert a new item if it doesn't exist.
+
+        The `UpdatedAt` attribute of the item is automatically set.
+
+        Args:
+            pk: The partition key.
+            sk: The sort key.
+            attributes: Dictionary with attributes to put. These attributes
+                will overwritten if they exist or created if they don't exist.
+
+        Raises:
+            app.common.db.DatabaseError if there was a problem connecting to
+                the database.
+
+        """
+        update_arg = UpdateArg(pk, sk, put_attributes=attributes)
+        self.update_item(update_arg)

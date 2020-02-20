@@ -28,14 +28,16 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: python3.8
-    # Seconds
-    Timeout: 3
-    MemorySize: 256
+    CodeUri: .
     Environment:
       Variables:
         AWS_ACCOUNT_ID: !Ref AWS::AccountId
         DEPLOYMENT_TARGET: !Ref DeploymentTarget
+        MAIN_TABLE_NAME:
+          Fn::ImportValue: !FindInMap [MainTableNames, !Ref DeploymentTarget, Name]
+    MemorySize: 256
+    Runtime: python3.8
+    Timeout: 1  # seconds
 
 Mappings:
   # DynamoDB main table names exported from DatabaseStack
@@ -117,31 +119,85 @@ Resources:
     Properties:
       CloudWatchRoleArn: !GetAtt ApiLogsRole.Arn
 
-  GetSessionCookie:
+  GroupSubscriptions:
     Type: AWS::Serverless::Function
     Properties:
-      Description: Get session cookie for login on partner sites
-      CodeUri: .
-      Handler: app.handlers.auth.session_cookie.handler
-      Environment:
-        Variables:
-          MAIN_TABLE_NAME:
-            Fn::ImportValue: !FindInMap [MainTableNames, !Ref DeploymentTarget, Name]
+      Description: Group subscriptions resource handler
+      Handler: app.handlers.groups.subscriptions.handler
       Policies:
         - Fn::ImportValue: !FindInMap [MainTableReadWritePolicyArn, !Ref DeploymentTarget, Name]
-        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/${SigningKeyUsagePolicy}"
       Events:
-        GetResource:
+        Get:
           Type: Api
           Properties:
             Method: get
+            Path: /groups/{group_name}/subscriptions
+            RestApiId: !Ref RestApi
+        Put:
+          Type: Api
+          Properties:
+            Method: put
+            Path: /groups/{group_name}/subscriptions/{project_domain}
+            RestApiId: !Ref RestApi
+        Delete:
+          Type: Api
+          Properties:
+            Method: delete
+            Path: /groups/{group_name}/subscriptions/{project_domain}
+            RestApiId: !Ref RestApi
+
+  SessionCookie:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Get/delete session cookie for login on partner sites
+      CodeUri: .
+      Handler: app.handlers.auth.session_cookie.handler
+      Policies:
+        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/${SigningKeyUsagePolicy}"
+        - Fn::ImportValue: !FindInMap [MainTableReadWritePolicyArn, !Ref DeploymentTarget, Name]
+      Events:
+        Post:
+          Type: Api
+          Properties:
+            Method: post
             Path: /auth/session-cookie
             RestApiId: !Ref RestApi
-        DeleteResource:
+        Delete:
           Type: Api
           Properties:
             Method: delete
             Path: /auth/session-cookie
+            RequestParameters:
+              - method.request.header.Cookie:
+                  Caching: false
+                  Required: true
+            RestApiId: !Ref RestApi
+
+  UserSubscriptions:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: User subscriptions resource handler
+      Handler: app.handlers.user.subscriptions.handler
+      Policies:
+        - Fn::ImportValue: !FindInMap [MainTableReadWritePolicyArn, !Ref DeploymentTarget, Name]
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            Method: get
+            Path: /user/subscriptions
+            RestApiId: !Ref RestApi
+        Put:
+          Type: Api
+          Properties:
+            Method: put
+            Path: /user/subscriptions/{project_domain}
+            RestApiId: !Ref RestApi
+        Delete:
+          Type: Api
+          Properties:
+            Method: delete
+            Path: /user/subscriptions/{project_domain}
             RestApiId: !Ref RestApi
 
 Outputs:

@@ -1,21 +1,18 @@
 """Get session cookie for authorization from partner doc sites."""
 import base64
 import secrets
-import time
 import urllib.parse
 from http.cookies import CookieError, SimpleCookie
-from typing import Any, Dict, Optional, Type, cast
-
-from botocore.exceptions import ClientError
+from typing import Any, Dict, Optional, cast
 
 import app.common.db as db
 from app.common.config import config
 from app.common.logging import get_logger
+from app.common.models import Session
 from app.common.token import AuthenticationError, TokenClient
 from app.common.types.lambd import LambdaContext, ProxyEvent, ProxyResponse
 
 
-_database = db.Database(config.main_table)
 _log = get_logger(__name__)
 _token_client = TokenClient(config.signing_key_name)
 
@@ -26,35 +23,18 @@ def _delete_handler(user_email: str, domain: str, headers: Dict[str, Any]) \
 
     sess_id = get_session_id(headers)
     if sess_id is None:
-        return _get_response(status=403, allow_origin=config.website_origin,
-                             cookie=delete_cookie)
+        return _get_response(status=403, cookie=delete_cookie)
 
     try:
-        _delete_session(user_email, sess_id)
-    except ClientError as e:
+        Session.delete(user_email, sess_id)
+    except db.DatabaseError as e:
+        # TODO (abiro) create wrapper as decorator for cleanup
         _log.error(f'Error deleting session:\n{e}')
         # Client should retry deleting the cookie for which they will need the
         # session id so don't delete the cookie.
-        return _get_response(status=500, allow_origin=config.website_origin,
-                             cookie=None)
+        return _get_response(status=500, cookie=None)
 
-    return _get_response(status=200, allow_origin=config.website_origin,
-                         cookie=delete_cookie)
-
-
-def _delete_session(user_email: str, session_id: bytes) -> None:
-    """Delete the session from DynamoDB.
-
-    Args:
-        user_email: User's email in Cognito.
-        session_id: The session id.
-
-    Raises:
-        app.common.db.ClientError if there was an error deleting the item (eg.
-            connection error or session id doesn't exist).
-
-    """
-    _write_session(db.DeleteArg, user_email, session_id)
+    return _get_response(status=200, cookie=delete_cookie)
 
 
 def _generate_id(nbytes: int) -> bytes:
@@ -90,45 +70,35 @@ def _get_cookie(domain: str, token: str, max_age: int) -> str:
     return c
 
 
-def _get_cookie_ttl() -> int:
-    return round(time.time()) + config.session_cookie_max_age
-
-
-def _get_handler(user_email: str, domain: str) -> ProxyResponse:
+def _post_handler(user_email: str, domain: str) -> ProxyResponse:
     sess_id = _generate_id(config.session_id_bytes)
     token = _get_session_token(sess_id)
 
     try:
-        _store_session(user_email, sess_id)
-    except ClientError as e:
-        _log.error(f'Error storing session:\n{e}')
-        return _get_response(status=500, allow_origin=config.website_origin,
-                             cookie=None)
+        Session.create(user_email, sess_id)
+    except db.DatabaseError as e:
+        # TODO (abiro) create wrapper as decorator for cleanup
+        _log.error(f'Error creating session:\n{e}')
+        return _get_response(status=500, cookie=None)
 
     cookie = _get_cookie(domain, token, config.session_cookie_max_age)
-    return _get_response(status=200, allow_origin=config.website_origin,
-                         cookie=cookie)
+    return _get_response(status=201, cookie=cookie)
 
 
-def _get_response(status: int, allow_origin: str,
-                  cookie: Optional[str]) -> ProxyResponse:
-    res = {
+def _get_response(status: int, cookie: Optional[str]) -> ProxyResponse:
+    res: ProxyResponse = {
         'statusCode': status,
-        'headers': {
-            'Access-Control-Allow-Origin': allow_origin,
-            'Access-Control-Allow-Credentials': True
-        }
     }
     if cookie:
         res['multiValueHeaders'] = {
             'Set-Cookie': [cookie]
         }
 
-    return cast(ProxyResponse, res)
+    return res
 
 
 def _get_session_from_token(token: str) -> bytes:
-    """Get session id from a token and verify its signature.
+    """Get session id from a token and is_valid its signature.
 
     Verifying the signature of the session id only establishes its
     authenticity. Whether the session is still active must be verified by
@@ -151,7 +121,7 @@ def _get_session_from_token(token: str) -> bytes:
 
 
 def _get_session_token(session_id: bytes) -> str:
-    # Signing the token allows us to verify that the session id was generated
+    # Signing the token allows us to is_valid that the session id was generated
     # on the server without hitting the database. This is useful for targeted
     # DDOS mitigation, but does not replace verifying that the session is
     # active in the DB.
@@ -161,51 +131,6 @@ def _get_session_token(session_id: bytes) -> str:
         'sid': base64.b64encode(session_id).decode('utf-8')
     }
     return _token_client.get_token(message, config.session_cookie_max_age)
-
-
-def _store_session(user_email: str, session_id: bytes) -> None:
-    """Store the session id in DynamoDB.
-
-    Args:
-        user_email: User's email in Cognito.
-        session_id: New session id.
-
-    Raises:
-        app.common.db.ClientError if there was an error inserting the item (eg.
-            connection error or session id exists).
-
-    """
-    attributes: db.Attributes = {
-        'ExpiresAt': _get_cookie_ttl()
-    }
-    _write_session(db.InsertArg, user_email, session_id, attributes=attributes)
-
-
-def _write_session(op_type: Type[db.OpArg], user_email: str, session_id: bytes,
-                   attributes: Optional[db.Attributes] = None) -> None:
-    sess_hash = _database.hex_hash(session_id)
-    pk = db.PartitionKey('Session', sess_hash)
-    sk_single = db.SingleSortKey('Session')
-    sk_user = db.SortKey('User', user_email)
-
-    # We create a session entity in the database before creating a
-    # SESSION-USER relation to make sure that there can be no duplicate
-    # session ids in the database. Can not use conditions for this purpose,
-    # as those require knowing the primary (composite) key which we don't
-    # without querying the database.
-    if attributes:
-        ops = [
-            op_type(pk, sk_single, attributes=attributes),
-            # DB has inverse secondary index for querying by email.
-            op_type(pk, sk_user, attributes=attributes)
-        ]
-    else:
-        ops = [
-            op_type(pk, sk_single),
-            op_type(pk, sk_user)
-        ]
-
-    _database.transact_write_items(ops)
 
 
 def get_session_id(headers: Dict[str, Any]) -> Optional[bytes]:
@@ -252,10 +177,10 @@ def handler(event: ProxyEvent, context: LambdaContext) -> ProxyResponse:
     domain = event['requestContext']['domainName']
     http_method = event['httpMethod']
 
-    if http_method == 'GET':
-        return _get_handler(user_email, domain)
-    elif http_method == 'DELETE':
+    if http_method == 'DELETE':
         return _delete_handler(user_email, domain, event['headers'])
+    elif http_method == 'POST':
+        return _post_handler(user_email, domain)
     else:
         # If an unsupported method is allowed to invoke this handler, that's a
         # misconfiguration in the Cloudformation template.

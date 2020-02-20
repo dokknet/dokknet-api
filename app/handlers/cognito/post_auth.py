@@ -21,7 +21,7 @@ class _UpdateArgs(TypedDict):
 
 
 def handler(event: PostAuthEvent, _: LambdaContext) -> PostAuthEvent:
-    """Cognito verify authentication challenge Lambda event handler."""
+    """Cognito is_valid authentication challenge Lambda event handler."""
     request = event['request']
     email_verified = request['userAttributes'].get('email_verified', 'false')
     # Should throw if 'sub' is notpresent

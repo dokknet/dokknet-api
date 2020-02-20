@@ -356,7 +356,7 @@ class TestVerifySignature(TestTokenBase):
         signature = b'my-signature'
 
         token_client._verify_signature(message, signature, self._key_id)
-        kms.verify.assert_called_once_with(
+        kms.is_valid.assert_called_once_with(
             KeyId=self._key_arn,
             Message=message.encode('utf-8'),
             Signature=signature,
@@ -378,7 +378,7 @@ class TestVerifySignature(TestTokenBase):
         message = 'message-b64'
         signature = b'my-signature'
 
-        kms.verify.side_effect = ClientError({}, '')
+        kms.is_valid.side_effect = ClientError({}, '')
 
         with self.assertRaises(m.AuthenticationError):
             token_client._verify_signature(message, signature, self._key_id)
@@ -390,7 +390,7 @@ class TestVerifySignature(TestTokenBase):
         message = 'message-b64'
         signature = b'my-signature'
 
-        kms.verify.return_value = {
+        kms.is_valid.return_value = {
             'SignatureValid': False
         }
 

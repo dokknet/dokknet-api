@@ -17,6 +17,7 @@ class Config(NamedTuple):
     log_level: str
     login_page: str
     main_table: str
+    max_users_in_group: int
     otp_length: int
     public_key_url_base: str
     ses_login_sender: str
@@ -89,6 +90,9 @@ def _build_config(env: Mapping[str, str], params: List[CloudFrontParam]) \
         log_level=log_level,
         login_page='https://dokknet.com/login',
         main_table=main_table,
+        # Need to update group subscriptions in transaction that can only
+        # update 25 items at once. 5 is reserved for items other than users.
+        max_users_in_group=20,
         otp_length=8,
         public_key_url_base=public_key_url_base,
         ses_login_sender=ses_login_sender,

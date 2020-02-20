@@ -80,6 +80,7 @@ class _ProxyEventTotal(TypedDict):
     httpMethod: str
     path: str
     headers: Dict[str, str]
+    pathParameters: Dict[str, str]
     requestContext: _RequestContext
     queryStringParameters: Optional[Dict[str, str]]
 

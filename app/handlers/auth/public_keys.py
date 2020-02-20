@@ -1,5 +1,5 @@
 # TODO (abiro) return JWK instead
-"""Get a public key to verify tokens.
+"""Get a public key to is_valid tokens.
 
 Path: /{stage}/auth/public-keys/{key_id}
 
@@ -11,12 +11,9 @@ import json
 from typing import TypedDict
 
 from app.common.config import config
-from app.common.path import get_name
 from app.common.token import KeyNotFoundError, TokenClient
 from app.common.types.lambd import LambdaContext, ProxyEvent, ProxyResponse
 
-
-PATH_BASE = '/auth/public-keys/'
 
 _token_client = TokenClient(config.signing_key_name)
 
@@ -59,12 +56,7 @@ def _get_response(key_id: str) -> ProxyResponse:
 
 def handler(event: ProxyEvent, context: LambdaContext) -> ProxyResponse:
     """Get public key."""
-    try:
-        key_id = get_name(event['path'], PATH_BASE)
-    except ValueError:
-        msg = 'Invalid path. Expected: /{stage}/auth/public-keys/key-id'
-        return _get_error_response(status=400, message=msg)
-
+    key_id = event['pathParameters']['key_id']
     try:
         return _get_response(key_id)
     except KeyNotFoundError:

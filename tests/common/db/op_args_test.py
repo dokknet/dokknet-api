@@ -1,4 +1,7 @@
+import re
 from unittest.mock import patch
+
+import boto3.dynamodb.conditions as cond
 
 import app.common.db.op_args as m
 from app.common import db
@@ -6,10 +9,25 @@ from app.common import db
 from tests import TestBase
 
 
+class User(db.EntityName):
+    pass
+
+
+class Subscription(db.EntityName):
+    pass
+
+
+class TestOpArg(TestBase):
+    def test_iso_now(self):
+        res = m.OpArg._iso_now()
+        iso_format = r'\d{4}-\d{2}-\d{2}T\d{2}\:\d{2}\:\d{2}'
+        self.assertTrue(re.match(iso_format, res))
+
+
 class OpTestMixin:
     def setUp(self):
-        self._pk = db.PartitionKey('User', 'eva.lu-ator@example.com')
-        self._sk = db.SortKey('Subscription', 'mitpress.mit.edu')
+        self._pk = db.PartitionKey(User, 'eva.lu-ator@example.com')
+        self._sk = db.SortKey(Subscription, 'mitpress.mit.edu')
         self._table_name = 'my-table'
 
     def test_table_name(self):
@@ -17,26 +35,41 @@ class OpTestMixin:
         self.assertEqual(kwargs['TableName'], self._table_name)
 
 
-class TestOpArg(TestBase):
-    def test_bool_conversion(self):
-        res = m.PutArg._get_dynamo_val(False)
-        exp = {'BOOL': False}
-        self.assertDictEqual(exp, res)
+class TestDeleteArg(OpTestMixin, TestBase):
+    def setUp(self):
+        super().setUp()
+        self._op_arg = m.DeleteArg(self._pk, self._sk)
 
-    def test_int_conversion(self):
-        res = m.PutArg._get_dynamo_val(-1)
-        exp = {'N': '-1'}
-        self.assertDictEqual(exp, res)
+    def test_key(self):
+        kwargs = self._op_arg.get_kwargs('')
+        key = kwargs['Key']
+        self.assertEqual(key['PK']['S'], str(self._pk))
+        self.assertEqual(key['SK']['S'], str(self._sk))
 
-    def test_float_conversion(self):
-        res = m.PutArg._get_dynamo_val(1 / 3)
-        exp = {'N': str(1 / 3)}
-        self.assertDictEqual(exp, res)
+    def test_not_idempotent(self):
+        op_arg = m.DeleteArg(self._pk, self._sk, idempotent=False)
+        kwargs = op_arg.get_kwargs('')
+        self.assertEqual(kwargs['ConditionExpression'],
+                         'attribute_exists(PK)')
 
-    def test_str_conversion(self):
-        res = m.PutArg._get_dynamo_val('32foo')
-        exp = {'S': '32foo'}
-        self.assertDictEqual(exp, res)
+    def test_idempotent(self):
+        kwargs = self._op_arg.get_kwargs('')
+        self.assertNotIn('ConditionExpression', kwargs)
+
+    def test_op_name(self):
+        self.assertEqual(self._op_arg.op_name, 'Delete')
+
+    def test_serialize_dict(self):
+        d = {
+            'foo': False,
+            'bar': 1
+        }
+        res = self._op_arg._serialize_dict(d)
+        exp = {
+            'foo': {'BOOL': False},
+            'bar': {'N': '1'}
+        }
+        self.assertDictEqual(res, exp)
 
 
 class TestPutArg(OpTestMixin, TestBase):
@@ -44,18 +77,12 @@ class TestPutArg(OpTestMixin, TestBase):
         super().setUp()
         self._op_arg = m.PutArg(self._pk, self._sk)
 
-    @patch('app.common.db.op_args.datetime')
-    def test_correct_timestamp(self, datetime):
-        utc_now = 'utc-now'
-        datetime.utcnow.return_value = utc_now
-        self.assertEqual(m.PutArg._get_updated_at(), utc_now)
-
-    @patch('app.common.db.op_args.PutArg._get_updated_at')
-    def test_adds_update_at(self, get_update_at):
-        exp_update_at = 'test-time-stamp'
-        get_update_at.return_value = exp_update_at
+    @patch('app.common.db.op_args.PutArg._iso_now')
+    def test_adds_created_at(self, iso_now):
+        exp_created_at = 'test-time-stamp'
+        iso_now.return_value = exp_created_at
         item = self._op_arg._get_dynamo_item()
-        self.assertEqual(item['UpdatedAt']['S'], exp_update_at)
+        self.assertEqual(item['CreatedAt']['S'], exp_created_at)
 
     def test_keys_added(self):
         item = self._op_arg._get_dynamo_item()
@@ -105,10 +132,47 @@ class TestInsertArg(OpTestMixin, TestBase):
         self.assertEqual(self._op_arg.op_name, 'Put')
 
 
-class TestDeleteArg(OpTestMixin, TestBase):
+class TestQueryArg(TestBase):
     def setUp(self):
         super().setUp()
-        self._op_arg = m.DeleteArg(self._pk, self._sk)
+        self._pk = db.PartitionKey(User, 'eva.lu-ator@example.com')
+        self._sk = db.SortKey(Subscription, 'mitpress.mit.edu')
+        self._cond = cond.Key('PK').eq(str(self._pk))
+        self._op_arg = m.QueryArg(self._cond)
+
+    def test_key_cond(self):
+        kwargs = self._op_arg.get_kwargs('')
+        key_cond = kwargs['KeyConditionExpression']
+        self.assertEqual(self._cond, key_cond)
+
+    def test_limit(self):
+        kwargs = self._op_arg.get_kwargs('')
+        limit = kwargs['Limit']
+        self.assertLessEqual(limit, 1000)
+
+    def test_over_limit(self):
+        with self.assertRaises(ValueError):
+            m.QueryArg(self._cond, limit=10000)
+
+    def test_default_projection(self):
+        kwargs = self._op_arg.get_kwargs('')
+        proj = kwargs['ProjectionExpression']
+        self.assertLessEqual(proj, 'SK')
+
+    def test_projection(self):
+        op_arg = m.QueryArg(self._cond, attributes=['PK', 'SK', 'foo'])
+        kwargs = op_arg.get_kwargs('')
+        proj = kwargs['ProjectionExpression']
+        self.assertLessEqual(proj, 'PK,SK,foo')
+
+    def test_op_name(self):
+        self.assertEqual(self._op_arg.op_name, 'Query')
+
+
+class TestUpdateArg(OpTestMixin, TestBase):
+    def setUp(self):
+        super().setUp()
+        self._op_arg = m.UpdateArg(self._pk, self._sk)
 
     def test_key(self):
         kwargs = self._op_arg.get_kwargs('')
@@ -116,15 +180,13 @@ class TestDeleteArg(OpTestMixin, TestBase):
         self.assertEqual(key['PK']['S'], str(self._pk))
         self.assertEqual(key['SK']['S'], str(self._sk))
 
-    def test_not_idempotent(self):
-        kwargs = self._op_arg.get_kwargs('')
-        self.assertEqual(kwargs['ConditionExpression'],
-                         'attribute_exists(PK)')
-
-    def test_idempotent(self):
-        op_arg = m.DeleteArg(self._pk, self._sk, idempotent=True)
+    def test_put_args(self):
+        put_attrs = {'foo': 1}
+        op_arg = m.UpdateArg(self._pk, self._sk, put_attributes=put_attrs)
         kwargs = op_arg.get_kwargs('')
-        self.assertNotIn('ConditionExpression', kwargs)
+        foo_update = kwargs['AttributeUpdates']['foo']
+        self.assertEqual(foo_update['Action'], 'PUT')
+        self.assertEqual(foo_update['Value']['N'], str(put_attrs['foo']))
 
     def test_op_name(self):
-        self.assertEqual(self._op_arg.op_name, 'Delete')
+        self.assertEqual(self._op_arg.op_name, 'Update')

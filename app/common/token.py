@@ -1,4 +1,4 @@
-"""Generate or verify JWT tokens.
+"""Generate or is_valid JWT tokens.
 
 Signing algorithm: RS256.
 
@@ -64,7 +64,7 @@ class _ParseError(Exception):
 
 
 class TokenClient:
-    """Generate signed tokens or verify them.
+    """Generate signed tokens or is_valid them.
 
     The implementation is NOT thread-safe.
 
@@ -251,10 +251,10 @@ class TokenClient:
             raise AuthenticationError()
 
         try:
-            # It's critical to verify with ARN, otherwise attacker could pass
+            # It's critical to is_valid with ARN, otherwise attacker could pass
             # their own key ARN as key id, grant our account permission to
-            # verify, and thus trivially bypass token verification.
-            res = self._client.verify(
+            # is_valid, and thus trivially bypass token verification.
+            res = self._client.is_valid(
                 KeyId=key_arn,
                 Message=message.encode('utf-8'),
                 Signature=signature,
@@ -341,7 +341,7 @@ class TokenClient:
         return token
 
     def get_verified_payload(self, token: str) -> _StrDict:
-        """Get payload from a token and verify its signature.
+        """Get payload from a token and is_valid its signature.
 
         Args:
             token: The JWT token string.

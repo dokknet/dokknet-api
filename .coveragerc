@@ -4,3 +4,8 @@ exclude_lines =
 
     # Abstract methods need not be tested.
     raise NotImplementedError
+
+[run]
+# TODO (abiro) models are WIP, enable coverage once done
+omit =
+    app/common/models*

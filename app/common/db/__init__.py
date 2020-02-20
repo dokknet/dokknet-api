@@ -4,17 +4,19 @@
 # Flake 8 would complain about unused imports if it was enabled on this file.
 
 from app.common.db.database import (
-    ClientError,
+    CapacityError,
+    ConditionalCheckFailedError,
     Database,
-    ItemExistsError,
+    DatabaseError,
     ItemResult,
-    TooManyResultsError,
-    TransactionError
+    TransactionError,
+    TransactionConflict
 )
 from app.common.db.keys import (
+    AnySortKey,
+    EntityName,
     PartitionKey,
     PrefixSortKey,
-    SingleSortKey,
     SortKey,
 )
 from app.common.db.op_args import (
@@ -22,5 +24,7 @@ from app.common.db.op_args import (
     DeleteArg,
     InsertArg,
     OpArg,
-    PutArg
+    PutArg,
+    QueryArg,
+    UpdateArg
 )
