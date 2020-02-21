@@ -5,13 +5,16 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional
 
 import boto3
 import boto3.dynamodb.conditions as cond
+from boto3.dynamodb.types import TypeDeserializer
 
 import botocore.client
 from botocore.exceptions import ClientError
 
+from app.common.db.index import GlobalIndex, GlobalSecondaryIndex, \
+    PrimaryGlobalIndex
 from app.common.db.keys import PartitionKey, PrefixSortKey, SortKey
-from app.common.db.op_args import Attributes, InsertArg, OpArg, PutArg, \
-    QueryArg, UpdateArg
+from app.common.db.op_args import Attributes, DeleteArg, GetArg, InsertArg, \
+    OpArg, PutArg, QueryArg, UpdateArg
 
 
 ItemResult = Mapping[str, Any]
@@ -92,25 +95,27 @@ class Database:
                 item_copy[k] = cls._remove_entity_prefix(v)
         return item_copy
 
-    def __init__(self, table_name: str):
+    def __init__(self, table_name: str,
+                 primary_index: Optional[GlobalIndex] = None):
         """Initialize a Database instance.
 
         Args:
             table_name: The DynamoDB table name.
+            primary_index: The primary global index of the database.
+                Defaults to `db.PrimaryGlobalIndex` that has 'PK' as the
+                partition key name and 'SK' as the sort key name.
 
         """
         self._table_name = table_name
-        # The boto objects are lazy-initialzied connections are created until
-        # the first request.
+        if primary_index:
+            self._primary_index = primary_index
+        else:
+            self._primary_index = PrimaryGlobalIndex()
+        self._deserializer = TypeDeserializer()
+
+        # The boto objects are lazy-initialzied. Connections are not created
+        # until the first request.
         self._client_handle = boto3.client('dynamodb')
-        # Not all operations are exposed on the table, but it's easier to work
-        # with those from the table that it exposes.
-        # Can't reuse client for table, as adding the client to a table puts
-        # it into a mode where it converts {'PK': {'S': 'key-value'}} argument
-        # to `{'PK': {'M': {'S': 'key-value'}}}` and this breaks
-        # `transact_write_items`.
-        resource = boto3.resource('dynamodb')
-        self._table_handle = resource.Table(self._table_name)
 
     @property
     def _client(self) -> 'botocore.client.DynamoDB':
@@ -118,35 +123,44 @@ class Database:
         return self._client_handle
 
     @property
-    def _table(self) -> 'boto3.resources.factory.dynamodb.Table':
-        # Helps mock the table at test time.
-        return self._table_handle
+    def primary_index(self) -> GlobalIndex:
+        """Get the primary global index of the database."""
+        return self._primary_index
+
+    @property
+    def table_name(self) -> str:
+        """Get the DynamoDB table name."""
+        return self._table_name
+
+    def _deserialize_dict(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Deserialize a dictionary while preserving its top level keys."""
+        return {k: self._deserializer.deserialize(v) for k, v in item.items()}
+
+    def _normalize_item(self, item: Dict[str, Any]) -> ItemResult:
+        des_item = self._deserialize_dict(item)
+        return self._strip_prefixes(des_item)
 
     def _query(self, query_arg: QueryArg) -> List[ItemResult]:
-        args = query_arg.get_kwargs(self._table_name)
+        args = query_arg.get_kwargs(self.table_name, self.primary_index)
         with self._dispatch_client_error():
-            query_res = self._table.query(**args)
+            query_res = self._client.query(**args)
         items = query_res.get('Items', [])
-        return [self._strip_prefixes(item) for item in items]
+        return [self._normalize_item(item) for item in items]
 
-    def delete_item(self, pk: PartitionKey, sk: SortKey) -> None:
+    def delete_item(self, pk: PartitionKey, sk: SortKey,
+                    idempotent: bool = True) -> None:
         """Delete an item from the database.
-
-        The operation is idempotent.
 
         Args:
             pk: The primary key.
             sk: The sort key.
+            idempotent: Whether the operation is idempotent. Defaults to True.
 
         """
-        args = {
-            'Key': {
-                'PK': str(pk),
-                'SK': str(sk)
-            }
-        }
+        delete_arg = DeleteArg(pk, sk, idempotent=idempotent)
+        kwargs = delete_arg.get_kwargs(self.table_name, self.primary_index)
         with self._dispatch_client_error():
-            self._table.delete_item(**args)
+            self._client.delete_item(**kwargs)
 
     def get_item(self, pk: PartitionKey, sk: SortKey,
                  attributes: Optional[List[str]] = None,
@@ -156,22 +170,21 @@ class Database:
         Args:
             pk: The primary key.
             sk: The sort key.
-            attributes: The attributes to get. Defaults to `['SK']`.
+            attributes: The attributes to get. Returns all attributes if
+                omitted.
             consistent: Whether the read is strongly consistent or not.
 
         Returns:
             The item if it exists.
 
         """
-        key_cond = cond.Key('PK').eq(str(pk)) & cond.Key('SK').eq(str(sk))
-        query_arg = QueryArg(key_cond,
-                             attributes=attributes,
-                             consistent=consistent,
-                             limit=1)
-        # `Table.get_item` doesn't allow specifying index.
-        res = self._query(query_arg)
-        if res:
-            return res[0]
+        get_arg = GetArg(pk, sk, attributes=attributes, consistent=consistent)
+        kwargs = get_arg.get_kwargs(self.table_name, self.primary_index)
+        with self._dispatch_client_error():
+            res = self._client.get_item(**kwargs)
+        item = res.get('Item')
+        if item:
+            return self._normalize_item(item)
         else:
             return None
 
@@ -211,13 +224,14 @@ class Database:
                 the database.
 
         """
-        kwargs = put_arg.get_kwargs(self._table_name)
+        kwargs = put_arg.get_kwargs(self.table_name, self.primary_index)
         with self._dispatch_client_error():
             self._client.put_item(**kwargs)
 
     # Type checks are sufficient to test this function, so it's excluded from
     # unit test coverage.
-    def query(self, key_condition: cond.Key,
+    def query(self, key_condition: cond.ConditionBase,
+              global_index: Optional[GlobalSecondaryIndex] = None,
               attributes: Optional[List[str]] = None,
               consistent: bool = False,
               limit: Optional[int] = None) -> List[ItemResult]:  # pragma: no cover  # noqa 501
@@ -228,6 +242,8 @@ class Database:
         Args:
             key_condition: The key condition. Eg.:
                 `Key('PK').eq(str(pk)) & Key('SK').begins_with(str(sk))`
+            global_index: The global secondary index to query. Defaults to the
+                primary index.
             attributes: The attributes to get. Defaults to `SK`.
             consistent: Whether the read is strongly consistent or not.
             limit: The maximum number of items to fetch. Defaults to 1000.
@@ -243,12 +259,14 @@ class Database:
 
         """
         query_arg = QueryArg(key_condition,
+                             global_index=global_index,
                              attributes=attributes,
                              consistent=consistent,
                              limit=limit)
         return self._query(query_arg)
 
     def query_prefix(self, pk: PartitionKey, sk: PrefixSortKey,
+                     global_index: Optional[GlobalSecondaryIndex] = None,
                      attributes: Optional[List[str]] = None,
                      consistent: bool = False,
                      limit: Optional[int] = None) -> List[ItemResult]:
@@ -259,6 +277,8 @@ class Database:
         Args:
             pk: The partition key.
             sk: The sort key prefix.
+            global_index: The global secondary index to query. Defaults to the
+                primary index.
             attributes: The attributes to get. Defaults to `['SK']`.
             consistent: Whether the read is strongly consistent or not.
             limit: The maximum number of items to fetch. Defaults to 1000.
@@ -271,9 +291,17 @@ class Database:
                 database.
 
         """
-        key_condition = cond.Key('PK').eq(str(pk)) & \
-            cond.Key('SK').begins_with(str(sk))
+        if global_index:
+            pk_name = global_index.partition_key
+            sk_name = global_index.sort_key
+        else:
+            pk_name = self.primary_index.partition_key
+            sk_name = self.primary_index.sort_key
+
+        key_condition = cond.Key(pk_name).eq(str(pk)) & \
+            cond.Key(sk_name).begins_with(str(sk))
         query_arg = QueryArg(key_condition,
+                             global_index=global_index,
                              attributes=attributes,
                              consistent=consistent,
                              limit=limit)
@@ -295,7 +323,7 @@ class Database:
         """
         transact_items = []
         for a in args:
-            kwargs = a.get_kwargs(self._table_name)
+            kwargs = a.get_kwargs(self.table_name, self.primary_index)
             transact_items.append({a.op_name: kwargs})
         with self._dispatch_client_error():
             self._client.transact_write_items(TransactItems=transact_items)
@@ -311,7 +339,7 @@ class Database:
                 the database.
 
         """
-        kwargs = update_arg.get_kwargs(self._table_name)
+        kwargs = update_arg.get_kwargs(self.table_name, self.primary_index)
         with self._dispatch_client_error():
             self._client.update_item(**kwargs)
 

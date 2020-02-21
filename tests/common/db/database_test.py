@@ -86,23 +86,30 @@ class TestInit(TestBase):
     def test_client(self):
         boto3 = self._mocks['boto3']
 
-        db = Database('my-table')
-        self.assertEqual(db._client, boto3.client.return_value)
+        database = Database('my-table')
+        self.assertEqual(database._client, boto3.client.return_value)
 
-    def test_table(self):
-        boto3 = self._mocks['boto3']
-        resource = MagicMock()
-        boto3.resource.return_value = resource
-        table_name = 'my-table'
-        database = Database(table_name)
-        resource.Table.assert_called_once_with(table_name)
-        self.assertEqual(database._table, resource.Table.return_value)
+    def test_primary_indext(self):
+        pk_name = 'my-pk-name'
+        sk_name = 'my-sk-name'
+
+        class TestIndex(db.GlobalIndex):
+            @property
+            def partition_key(self) -> str:
+                return pk_name
+
+            @property
+            def sort_key(self) -> str:
+                return sk_name
+
+        database = Database('my-table', TestIndex())
+        self.assertEqual(database.primary_index.partition_key, pk_name)
+        self.assertEqual(database.primary_index.sort_key, sk_name)
 
 
 class DatabaseTestCaseMixin(ABC):
     _to_patch = [
         'app.common.db.database.boto3',
-        'app.common.db.database.Database._table#PROPERTY',
         'app.common.db.database.Database._client#PROPERTY'
     ]
 
@@ -120,8 +127,6 @@ class DatabaseTestCaseMixin(ABC):
 
         self._client = MagicMock()
         self._mocks['_client'].return_value = self._client
-        self._table = MagicMock()
-        self._mocks['_table'].return_value = self._table
         self._pk = db.PartitionKey(User, 'foo@example.com')
         self._sk = db.SortKey(Subscription, 'docs.example.com')
         self._sk_prefix = db.PrefixSortKey(Subscription)
@@ -150,24 +155,10 @@ class TestDeleteItem(DatabaseTestCaseMixin, TestBase):
 
     @property
     def _dynamo_method(self):
-        return self._table.delete_item
-
-    def test_key(self):
-        self._call_test_fn()
-        key_arg = self._dynamo_method.call_args.kwargs['Key']
-        exp_key_arg = {
-            'PK': str(self._pk),
-            'SK': str(self._sk)
-        }
-        self.assertDictEqual(key_arg, exp_key_arg)
+        return self._client.delete_item
 
 
 class QueryTestMixin(DatabaseTestCaseMixin):
-    def _test_correct_key(self, exp_cond):
-        self._call_test_fn()
-        kc = self._dynamo_method.call_args.kwargs['KeyConditionExpression']
-        self.assertEqual(kc, exp_cond)
-
     def test_handles_no_result(self):
         self._dynamo_method.return_value = {}
         self.assertFalse(self._call_test_fn())
@@ -186,11 +177,11 @@ class TestQuery(QueryTestMixin, TestBase):
 
     @property
     def _dynamo_method(self):
-        return self._table.query
+        return self._client.query
 
     def test_strips_prefixes(self):
         self._dynamo_method.return_value = {
-            'Items': [{'PK': str(self._pk)}]
+            'Items': [{'PK': {'S': str(self._pk)}}]
         }
         res = self._call_test_fn()
         self.assertEqual(res[0]['PK'], self._pk.value)
@@ -204,35 +195,39 @@ class TestGetItem(QueryTestMixin, TestBase):
 
     @property
     def _dynamo_method(self):
-        return self._table.query
-
-    def test_correct_key(self):
-        pk_cond = Key('PK').eq(str(self._pk))
-        sk_cond = Key('SK').eq(str(self._sk))
-        self._test_correct_key(pk_cond & sk_cond)
+        return self._client.get_item
 
     def test_strips_prefixes(self):
         self._dynamo_method.return_value = {
-            'Items': [{'PK': str(self._pk)}]
+            'Item': {'PK': {'S': str(self._pk)}}
         }
         res = self._call_test_fn()
         self.assertEqual(res['PK'], self._pk.value)
 
 
 class TestQueryPrefix(QueryTestMixin, TestBase):
-    def _call_test_fn(self, attributes=None):
+    def _call_test_fn(self, global_index=None, attributes=None):
         database = Database('my-table')
         return database.query_prefix(self._pk, self._sk_prefix,
+                                     global_index=global_index,
                                      attributes=attributes)
 
     @property
     def _dynamo_method(self):
-        return self._table.query
+        return self._client.query
 
     def test_correct_key(self):
-        pk_cond = Key('PK').eq(str(self._pk))
-        sk_cond = Key('SK').begins_with(str(self._sk_prefix))
-        self._test_correct_key(pk_cond & sk_cond)
+        self._call_test_fn()
+        kc = self._dynamo_method.call_args.kwargs['KeyConditionExpression']
+        self.assertEqual('(#n0 = :v0 AND begins_with(#n1, :v1))', kc)
+
+    def test_global_index(self):
+        index = db.InverseGlobalIndex()
+        self._call_test_fn(global_index=index)
+        kwargs = self._dynamo_method.call_args.kwargs
+        attr_names = kwargs['ExpressionAttributeNames']
+        self.assertEqual(attr_names['#n0'], index.partition_key)
+        self.assertEqual(attr_names['#n1'], index.sort_key)
 
 
 class PutItemTestMixin(DatabaseTestCaseMixin):
@@ -287,7 +282,8 @@ class TestTransactWriteItems(PutItemTestMixin, TestBase):
         expected_item = {op_name: 1}
 
         self._call_test_fn(items=[arg_mock], table_name=table_name)
-        arg_mock.get_kwargs.assert_called_once_with(table_name)
+        arg_mock.get_kwargs.assert_called_once()
+        self.assertEqual(arg_mock.get_kwargs.call_args.args[0], table_name)
         self.assertDictEqual(self._dynamo_method.call_args.kwargs,
                              {'TransactItems': [expected_item]})
 

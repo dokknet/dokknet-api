@@ -12,6 +12,12 @@ from app.common.db.database import (
     TransactionError,
     TransactionConflict
 )
+from app.common.db.index import (
+    GlobalIndex,
+    GlobalSecondaryIndex,
+    PrimaryGlobalIndex,
+    InverseGlobalIndex
+)
 from app.common.db.keys import (
     AnySortKey,
     EntityName,
