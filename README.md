@@ -65,7 +65,7 @@ TODO (abiro) create IAM deployment role.
 
 ### Deployment Targets
 
-1. `production`: https://dokknet-api.com/v1
+1. `production`: https://api.dokknet.com/v1
 1. `staging`: TODO (abiro)
 1. `dev`: Random AWS API gateway subdomain of the format `https://{api-id}.execute-api.{region}.amazonaws.com/{stage}`
 
