@@ -1,20 +1,21 @@
 import threading
 from typing import cast
 
+from dokklib_db import Table
+
 from app.common.config import config
-from app.common.db import Database
 
 
 _local = threading.local()
 
 
-def get_db() -> Database:
-    """Get thread-local database object.
+def get_table() -> Table:
+    """Get thread-local table object.
 
     Returns:
-        The database object.
+        The table object.
 
     """
     if not hasattr(_local, 'db'):
-        _local.db = Database(config.main_table)
-    return cast(Database, _local.db)
+        _local.db = Table(config.main_table)
+    return cast(Table, _local.db)

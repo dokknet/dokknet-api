@@ -5,7 +5,8 @@ import urllib.parse
 from http.cookies import CookieError, SimpleCookie
 from typing import Any, Dict, Optional, cast
 
-import app.common.db as db
+import dokklib_db as db
+
 from app.common.config import config
 from app.common.logging import get_logger
 from app.common.models import Session

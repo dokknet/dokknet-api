@@ -17,7 +17,7 @@ deps_dir = repo_root / 'requirements'
 # The flag will be soon deprecated and made the default behaviour.
 # More info: https://github.com/jazzband/pip-tools/issues/989
 # TODO (abiro) remove --allow-unsafe once it's deprecated
-cmd_template = 'pip-compile -q --allow-unsafe --generate-hashes ' \
+cmd_template = 'pip-compile --rebuild -q --allow-unsafe --generate-hashes ' \
                '--output-file {out_file} {in_file}'
 
 for dep in _DEPS_ORDER:

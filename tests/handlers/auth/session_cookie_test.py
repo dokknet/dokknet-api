@@ -5,7 +5,8 @@ from typing import Any
 from unittest.mock import MagicMock as MMock
 from unittest.mock import patch
 
-import app.common.db as db
+import dokklib_db as db
+
 from app.common.config import config
 from app.common.token import AuthenticationError
 from app.handlers.auth import session_cookie as m

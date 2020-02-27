@@ -1,9 +1,10 @@
 """User group model."""
 from typing import TypedDict
 
-import app.common.db as db
+import dokklib_db as db
+
 import app.common.models.entities as ent
-from app.common.models.db import get_db
+from app.common.models.db import get_table
 
 
 class GroupAttributes(TypedDict):
@@ -26,5 +27,5 @@ def is_owner(group_name: str, user_email: str) -> bool:
     """
     pk = db.PartitionKey(ent.Group, group_name)
     sk = db.SortKey(ent.Group, group_name)
-    res = get_db().get_item(pk, sk, attributes=['OwnerEmail'])
+    res = get_table().get(pk, sk, attributes=['OwnerEmail'])
     return res is not None and res['OwnerEmail'] == user_email

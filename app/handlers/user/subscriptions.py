@@ -1,7 +1,8 @@
 import json
 from typing import Optional
 
-import app.common.db as db
+import dokklib_db as db
+
 from app.common.logging import get_logger
 from app.common.models import Project, UserSub
 from app.common.types.lambd import LambdaContext, ProxyEvent, ProxyResponse

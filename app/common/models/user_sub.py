@@ -4,9 +4,10 @@ from typing import List, Optional, TypedDict, cast
 
 import boto3.dynamodb.conditions as cond
 
-import app.common.db as db
+import dokklib_db as db
+
 import app.common.models.entities as ent
-from app.common.models.db import get_db
+from app.common.models.db import get_table
 
 
 class SubAttributes(TypedDict):
@@ -55,7 +56,7 @@ def create(user_email: str, project_domain: str, trial_days: int) -> None:
     # TODO (abiro) Stripe logic
     user_op = _get_user_create_op(user_email, project_domain)
     trial_end_op = _get_trial_end_op(user_email, project_domain, trial_days)
-    get_db().transact_write_items([
+    get_table().transact_write_items([
         user_op,
         trial_end_op
     ])
@@ -81,7 +82,7 @@ def delete(user_email: str, project_domain: str) -> None:
     attr: SubAttributes = {
         'IsActive': False
     }
-    get_db().put_attributes(pk, sk, attr)
+    get_table().update_attributes(pk, sk, attr)
 
 
 def fetch(user_email: str, project_domain: str, consistent: bool = False) \
@@ -102,9 +103,9 @@ def fetch(user_email: str, project_domain: str, consistent: bool = False) \
     """
     pk = db.PartitionKey(ent.User, user_email)
     sk = db.SortKey(ent.Sub, project_domain)
-    res = get_db().get_item(pk, sk,
-                            consistent=consistent,
-                            attributes=['IsActive'])
+    res = get_table().get(pk, sk,
+                          consistent=consistent,
+                          attributes=['IsActive'])
     if res is not None:
         return cast(SubAttributes, res)
     else:
@@ -128,9 +129,9 @@ def fetch_all(user_email: str, consistent: bool = False) -> List[Subscription]:
     # TODO (abiro) add group subs as well
     pk = db.PartitionKey(ent.User, user_email)
     sk = db.PrefixSortKey(ent.Sub)
-    subs = get_db().query_prefix(pk, sk,
-                                 consistent=consistent,
-                                 attributes=['SK', 'IsActive'])
+    subs = get_table().query_prefix(pk, sk,
+                                    consistent=consistent,
+                                    attributes=['SK', 'IsActive'])
     res = []
     for s in subs:
         r: Subscription = {
@@ -175,8 +176,12 @@ def recreate(user_email: str, project_domain: str) -> None:
     """
     # TODO (abiro) Stripe logic
     # TODO (abiro) Update instead of Put
-    user_op = _get_user_create_op(user_email, project_domain)
-    get_db().put_item(user_op)
+    pk = db.PartitionKey(ent.User, user_email)
+    sk = db.SortKey(ent.Sub, project_domain)
+    attr: SubAttributes = {
+        'IsActive': True
+    }
+    get_table().update_attributes(pk, sk, attr)
 
 
 def is_valid(user_email: str, project_domain: str) -> bool:
@@ -199,7 +204,7 @@ def is_valid(user_email: str, project_domain: str) -> bool:
     key_cond = pk_cond & sk_cond
 
     query_arg = db.QueryArg(key_cond, attributes=['IsActive'])
-    subs = get_db().query(query_arg)
+    subs = get_table().query(query_arg)
     for s in subs:
         if s['IsActive']:
             return True

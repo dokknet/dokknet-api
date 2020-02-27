@@ -4,7 +4,7 @@ The key for an item is composed of the entity name and the key value, eg. for
 users: `USER#alice@example.com`.
 
 """
-import app.common.db as db
+import dokklib_db as db
 
 
 class Group(db.EntityName):

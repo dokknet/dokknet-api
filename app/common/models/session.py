@@ -3,10 +3,11 @@ import hashlib
 import time
 from typing import Optional, TypedDict, cast
 
-import app.common.db as db
+import dokklib_db as db
+
 import app.common.models.entities as ent
 from app.common.config import config
-from app.common.models.db import get_db
+from app.common.models.db import get_table
 
 
 class SessionAttributes(TypedDict):
@@ -60,7 +61,7 @@ def create(user_email: str, session_id: bytes) -> None:
     # session ids in the database. Can not use conditions for this purpose,
     # as those require knowing the primary (composite) key which we don't
     # without querying the database.
-    get_db().transact_write_items([
+    get_table().transact_write_items([
         db.InsertArg(pk, sk_session, attributes=attributes),
         db.InsertArg(pk, sk_user, attributes=attributes)
     ])
@@ -87,7 +88,7 @@ def delete(user_email: str, session_id: bytes) -> None:
     # session ids in the database. Can not use conditions for this purpose,
     # as those require knowing the primary (composite) key which we don't
     # without querying the database.
-    get_db().transact_write_items([
+    get_table().transact_write_items([
         db.DeleteArg(pk, sk_session),
         db.DeleteArg(pk, sk_user)
     ])
@@ -109,7 +110,7 @@ def fetch_user_email(session_id: bytes) -> Optional[str]:
     sess_hash = _hex_hash(session_id)
     pk = db.PartitionKey(ent.Session, sess_hash)
     sk = db.PrefixSortKey(ent.User)
-    res = get_db().query_prefix(pk, sk, attributes=['SK'])
+    res = get_table().query_prefix(pk, sk, attributes=['SK'])
     if res:
         return cast(str, res[0]['SK'])
     else:

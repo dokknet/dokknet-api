@@ -1,9 +1,10 @@
 """User group subscription model."""
 from typing import Optional, TypedDict, cast
 
-import app.common.db as db
+import dokklib_db as db
+
 import app.common.models.entities as ent
-from app.common.models.db import get_db
+from app.common.models.db import get_table
 from app.common.models.user_sub import get_trial_end_date
 
 
@@ -50,9 +51,9 @@ def fetch(group_name: str, project_domain: str, consistent: bool = False) \
     """
     pk = db.PartitionKey(ent.Group, group_name)
     sk = db.SortKey(ent.GroupSub, project_domain)
-    res = get_db().get_item(pk, sk,
-                            consistent=consistent,
-                            attributes=['IsActive'])
+    res = get_table().get(pk, sk,
+                          consistent=consistent,
+                          attributes=['IsActive'])
     if res is not None:
         return cast(GroupSubAttributes, res)
     else:
@@ -79,7 +80,7 @@ def create(group_name: str, project_domain: str, trial_days: int) -> None:
     trial_end_op = _get_trial_end_op(group_name=group_name,
                                      project_domain=project_domain,
                                      trial_days=trial_days)
-    get_db().transact_write_items([
+    get_table().transact_write_items([
         group_op,
         trial_end_op
     ])

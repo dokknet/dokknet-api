@@ -1,9 +1,10 @@
 """Documentation project model."""
 from typing import Optional, TypedDict, cast
 
-import app.common.db as db
+import dokklib_db as db
+
 import app.common.models.entities as ent
-from app.common.models.db import get_db
+from app.common.models.db import get_table
 
 
 class ProjectAttributes(TypedDict):
@@ -24,7 +25,7 @@ def fetch(project_domain: str) -> Optional[ProjectAttributes]:
     """
     pk = db.PartitionKey(ent.Project, project_domain)
     sk = db.SortKey(ent.Project, project_domain)
-    res = get_db().get_item(pk, sk, attributes=['TrialDays'])
+    res = get_table().get(pk, sk, attributes=['TrialDays'])
     if res is not None:
         return cast(ProjectAttributes, res)
     else:
@@ -43,5 +44,5 @@ def exists(project_domain: str) -> bool:
     """
     pk = db.PartitionKey(ent.Project, project_domain)
     sk = db.SortKey(ent.Project, project_domain)
-    res = get_db().get_item(pk, sk)
+    res = get_table().get(pk, sk)
     return bool(res)
