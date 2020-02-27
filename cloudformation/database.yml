@@ -102,7 +102,6 @@ Resources:
             Resource: !Sub
               - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}"
               - TableName: !Ref MainTable
-  # Make sure to add read policy also if you use this.
   MainTableReadWritePolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -133,9 +132,13 @@ Resources:
               - dynamodb:Delete*
               - dynamodb:Update*
               - dynamodb:PutItem
-            Resource: !Sub
-              - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}"
-              - TableName: !Ref MainTable
+            Resource:
+              - !Sub
+                - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}"
+                - TableName: !Ref MainTable
+              - !Sub
+                - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}/index/GSI_1"
+                - TableName: !Ref MainTable
 
 Outputs:
   MainTableId:
